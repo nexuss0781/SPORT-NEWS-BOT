@@ -1,6 +1,7 @@
 import { Bot, Context } from "grammy";
 import { registerAdminCommands } from "./handlers/admin";
 import { registerStartCommands } from "./handlers/start";
+import { registerCallbacks } from "./handlers/callbacks";
 import { config } from "./config";
 import {
   getChannels,
@@ -10,6 +11,7 @@ import {
   getProcessedPostByTargetMessage,
 } from "./services/storage";
 import { translateToAmharic } from "./services/translator";
+import { getMainMenu } from "./menus/index";
 
 export function createBot(): Bot {
   const bot = new Bot(config.botToken);
@@ -17,6 +19,9 @@ export function createBot(): Bot {
   // Register command handlers
   registerStartCommands(bot);
   registerAdminCommands(bot);
+
+  // Register callback handlers for inline keyboards
+  registerCallbacks(bot);
 
   // Handle channel posts (new messages)
   bot.on("channel_post", async (ctx) => {
@@ -35,6 +40,17 @@ export function createBot(): Bot {
 
   bot.command("original", async (ctx) => {
     await handleOriginalCommand(ctx, "original");
+  });
+
+  // Handle /menu command to show interactive menu
+  bot.command("menu", async (ctx) => {
+    const { text, keyboard } = getMainMenu();
+    await ctx.reply(text, { reply_markup: keyboard });
+  });
+
+  // Handle /cancel to clear state
+  bot.command("cancel", async (ctx) => {
+    await ctx.reply("Action cancelled. Use /menu to open the menu.");
   });
 
   return bot;

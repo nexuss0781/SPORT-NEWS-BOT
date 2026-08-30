@@ -1,52 +1,47 @@
-import { Context } from "grammy";
+import { Context, InlineKeyboard } from "grammy";
+import { getMainMenu } from "../menus/index";
 
 export function registerStartCommands(bot: any): void {
   bot.start(async (ctx: Context) => {
+    const { text, keyboard } = getMainMenu();
     const welcome = [
-      "👋 Welcome to Sport News Amharic Bot!",
+      "╔══════════════════════════╗",
+      "║   🤖 SPORT NEWS BOT      ║",
+      "║   Amharic Translation    ║",
+      "╚══════════════════════════╝",
       "",
-      "This bot monitors Telegram channels and translates their posts to Amharic.",
+      "Welcome! I monitor Telegram channels",
+      "and translate posts to Amharic.",
       "",
-      "📌 For admins:",
-      "/addchannel @channel - Add channel to monitor",
-      "/removechannel @channel - Remove channel",
-      "/listchannels - List monitored channels",
-      "/settarget @channel - Set output channel",
-      "/setsignature text - Set footer signature",
-      "/toggleenglish - Toggle English display",
-      "/toggleoriginal - Toggle Original display",
-      "/status - Bot status",
-      "",
-      "ℹ️ /help - Show this message",
+      "Use the menu below to get started:",
     ].join("\n");
 
-    ctx.reply(welcome);
+    await ctx.reply(welcome, { reply_markup: keyboard });
   });
 
   bot.help(async (ctx: Context) => {
+    const { text, keyboard } = getMainMenu();
     const help = [
-      "📖 Available Commands",
+      "╔══════════════════════════╗",
+      "║   ❓ HELP & COMMANDS     ║",
+      "╚══════════════════════════╝",
       "",
-      "🔹 General:",
-      "/start - Welcome message",
-      "/help - This help message",
-      "",
-      "🔹 Channel Commands (reply to translated post):",
-      "/english - Show English + Amharic side by side",
-      "/original - Show Original + Translation",
+      "🔹 Channel Commands:",
+      "   /english - Show EN + AM",
+      "   /original - Show Original",
       "",
       "🔹 Admin Commands:",
-      "/addchannel @channel - Add channel to monitor",
-      "/removechannel @channel - Remove channel",
-      "/listchannels - List monitored channels",
-      "/settarget @channel - Set output channel",
-      "/setsignature text - Set footer signature",
-      "/getsignature - View current signature",
-      "/toggleenglish - Toggle English above Amharic",
-      "/toggleoriginal - Toggle Original + Translation format",
-      "/status - Bot status & config",
+      "   /addchannel @channel",
+      "   /removechannel @channel",
+      "   /listchannels",
+      "   /settarget @channel",
+      "   /setsignature text",
+      "   /toggleenglish",
+      "   /toggleoriginal",
+      "   /status",
+      "   /menu - Open menu",
     ].join("\n");
 
-    ctx.reply(help);
+    await ctx.reply(help, { reply_markup: keyboard });
   });
 }
