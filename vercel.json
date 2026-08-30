@@ -1,5 +1,4 @@
 {
-  "outputDirectory": null,
   "functions": {
     "api/bot.ts": {
       "memory": 256,
