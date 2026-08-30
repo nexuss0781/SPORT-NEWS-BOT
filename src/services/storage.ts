@@ -4,7 +4,7 @@ import { config } from "../config";
 import { BotConfig, Channel, ProcessedPost, StorageData } from "../types";
 export { ProcessedPost } from "../types";
 
-const DATA_DIR = path.resolve(config.dataDir);
+const DATA_DIR = "/tmp/bot-data";
 
 function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) {
