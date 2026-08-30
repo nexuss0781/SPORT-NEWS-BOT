@@ -2,6 +2,8 @@ import { createBot } from "../src/index";
 
 const bot = createBot();
 
+let initialized = false;
+
 export default async function handler(req: any, res: any) {
   if (req.method === "GET") {
     res.status(200).json({ status: "ok", message: "Bot is running" });
@@ -10,6 +12,10 @@ export default async function handler(req: any, res: any) {
 
   if (req.method === "POST") {
     try {
+      if (!initialized) {
+        await bot.init();
+        initialized = true;
+      }
       await bot.handleUpdate(req.body);
       res.status(200).json({ ok: true });
     } catch (error) {
