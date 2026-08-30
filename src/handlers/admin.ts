@@ -36,7 +36,7 @@ export function registerAdminCommands(bot: any): void {
 
     let added = 0;
     for (const username of usernames) {
-      const exists = getChannels().some(
+      const exists = (await getChannels()).some(
         (c) => c.username.toLowerCase() === username.toLowerCase()
       );
       if (exists) continue;
@@ -46,11 +46,11 @@ export function registerAdminCommands(bot: any): void {
         addedAt: new Date().toISOString(),
         addedBy: ctx.from!.id,
       };
-      addChannel(channel);
+      await addChannel(channel);
       added++;
     }
 
-    const channels = getChannels();
+    const channels = await getChannels();
     ctx.reply(`✅ Added ${added} source channel(s).\n\nTotal monitored: ${channels.length}`);
   });
 
@@ -67,13 +67,13 @@ export function registerAdminCommands(bot: any): void {
       username = `@${username}`;
     }
 
-    const channels = removeChannel(username);
+    const channels = await removeChannel(username);
     ctx.reply(`✅ Channel ${username} removed.\n\nTotal monitored: ${channels.length}`);
   });
 
   // List channels
   bot.command("listchannels", adminOnly, async (ctx: Context) => {
-    const channels = getChannels();
+    const channels = await getChannels();
     if (channels.length === 0) {
       ctx.reply("No channels being monitored.\n\nUse /addchannel @channel to add one.");
       return;
@@ -101,7 +101,7 @@ export function registerAdminCommands(bot: any): void {
       .map((u) => (u.startsWith("@") ? u : `@${u}`));
 
     const unique = [...new Set(usernames)];
-    updateConfig({ targetChannels: unique, targetChannel: unique[0] });
+    await updateConfig({ targetChannels: unique, targetChannel: unique[0] });
     ctx.reply(`✅ Target channel(s) set:\n\n${unique.join("\n")}\n\nTotal: ${unique.length}`);
   });
 
@@ -114,13 +114,13 @@ export function registerAdminCommands(bot: any): void {
     }
 
     const signature = args.join(" ");
-    updateConfig({ signature });
+    await updateConfig({ signature });
     ctx.reply(`✅ Signature set to:\n\n${signature}`);
   });
 
   // Get signature
   bot.command("getsignature", adminOnly, async (ctx: Context) => {
-    const cfg = getConfig();
+    const cfg = await getConfig();
     if (cfg.signature) {
       ctx.reply(`Current signature:\n\n${cfg.signature}`);
     } else {
@@ -130,24 +130,24 @@ export function registerAdminCommands(bot: any): void {
 
   // Toggle English display
   bot.command("toggleenglish", adminOnly, async (ctx: Context) => {
-    const cfg = getConfig();
+    const cfg = await getConfig();
     const newValue = !cfg.showEnglish;
-    updateConfig({ showEnglish: newValue });
+    await updateConfig({ showEnglish: newValue });
     ctx.reply(`✅ English display ${newValue ? "ON" : "OFF"}\n\nWhen ON: English translation shown above Amharic for non-English posts.`);
   });
 
   // Toggle Original display
   bot.command("toggleoriginal", adminOnly, async (ctx: Context) => {
-    const cfg = getConfig();
+    const cfg = await getConfig();
     const newValue = !cfg.showOriginal;
-    updateConfig({ showOriginal: newValue });
+    await updateConfig({ showOriginal: newValue });
     ctx.reply(`✅ Original text display ${newValue ? "ON" : "OFF"}\n\nWhen ON: Shows "Original: English" + "Translation: Amharic" format for English source posts.`);
   });
 
   // Status
   bot.command("status", adminOnly, async (ctx: Context) => {
-    const cfg = getConfig();
-    const channels = getChannels();
+    const cfg = await getConfig();
+    const channels = await getChannels();
 
     const status = [
       "🤖 Bot Status",

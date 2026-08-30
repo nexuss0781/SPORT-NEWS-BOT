@@ -47,8 +47,8 @@ export async function processAndPublish(
   messageId: number,
   text: string
 ): Promise<void> {
-  const cfg = getConfig();
-  const targets = getTargetChannels();
+  const cfg = await getConfig();
+  const targets = await getTargetChannels();
   if (targets.length === 0) return;
 
   const translation = await translateToAmharic(text);
@@ -71,7 +71,7 @@ export async function processAndPublish(
 
   if (Object.keys(targetMessageIds).length === 0) return;
 
-  markAsProcessed({
+  await markAsProcessed({
     channelId,
     messageId,
     targetMessageIds,

@@ -31,8 +31,8 @@ export default async function handler(req: any, res: any) {
   let client: any = null;
 
   try {
-    const channels = getChannels();
-    const targets = getTargetChannels();
+    const channels = await getChannels();
+    const targets = await getTargetChannels();
 
     if (!channels.length || targets.length === 0) {
       res.status(200).json({ ok: true, message: "No channels or target configured" });
@@ -48,7 +48,7 @@ export default async function handler(req: any, res: any) {
       const messages = await fetchRecentMessages(client, ch.username, 10);
 
       for (const msg of messages) {
-        if (isProcessed(ch.username, msg.messageId)) continue;
+        if (await isProcessed(ch.username, msg.messageId)) continue;
         if (now - msg.date > LOOKBACK_SECONDS) continue;
 
         try {

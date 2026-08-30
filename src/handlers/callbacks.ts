@@ -24,13 +24,13 @@ import {
 } from "../services/storage";
 import { isAdmin } from "../config";
 
-function addSourceChannel(username: string, addedBy: number): boolean {
-  const channels = getChannels();
+async function addSourceChannel(username: string, addedBy: number): Promise<boolean> {
+  const channels = await getChannels();
   const exists = channels.some(
     (c) => c.username.toLowerCase() === username.toLowerCase()
   );
   if (exists) return false;
-  addChannel({
+  await addChannel({
     id: username,
     username,
     addedAt: new Date().toISOString(),
@@ -86,7 +86,7 @@ export function registerCallbacks(bot: any): void {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const cfg = getConfig();
+    const cfg = await getConfig();
     const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal);
     await safeReply(ctx, text, keyboard);
   });
@@ -97,8 +97,8 @@ export function registerCallbacks(bot: any): void {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const cfg = getConfig();
-    const channels = getChannels();
+    const cfg = await getConfig();
+    const channels = await getChannels();
     const { text, keyboard } = getStatusMenu({
       channels: channels.length,
       target: cfg.targetChannels,
@@ -127,7 +127,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getAddChannelPrompt();
     await safeReply(ctx, text, keyboard);
-    setPendingInput(ctx.from!.id, "addsource");
+    await setPendingInput(ctx.from!.id, "addsource");
   });
 
   bot.callbackQuery("channel:remove", async (ctx: Context) => {
@@ -136,7 +136,7 @@ export function registerCallbacks(bot: any): void {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const channels = getChannels().map((c) => c.username);
+    const channels = (await getChannels()).map((c) => c.username);
     const { text, keyboard } = getRemoveChannelPrompt(channels);
     await safeReply(ctx, text, keyboard);
   });
@@ -163,7 +163,7 @@ export function registerCallbacks(bot: any): void {
       return;
     }
     const channelUsername = ctx.callbackQuery?.data?.split(":")[2] || "";
-    removeChannel(channelUsername);
+    await removeChannel(channelUsername);
     const { text, keyboard } = getChannelsMenu();
     await safeReply(ctx, `✅ ${channelUsername} removed.\n\n${text}`, keyboard);
   });
@@ -174,7 +174,7 @@ export function registerCallbacks(bot: any): void {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const channels = getChannels();
+    const channels = await getChannels();
     let text: string;
     if (channels.length === 0) {
       text = [
@@ -210,7 +210,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getSetTargetPrompt();
     await safeReply(ctx, text, keyboard);
-    setPendingInput(ctx.from!.id, "settarget");
+    await setPendingInput(ctx.from!.id, "settarget");
   });
 
   bot.callbackQuery("setting:toggle:english", async (ctx: Context) => {
@@ -219,9 +219,9 @@ export function registerCallbacks(bot: any): void {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const cfg = getConfig();
-    updateConfig({ showEnglish: !cfg.showEnglish });
-    const updated = getConfig();
+    const cfg = await getConfig();
+    await updateConfig({ showEnglish: !cfg.showEnglish });
+    const updated = await getConfig();
     const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal);
     await safeReply(ctx, text, keyboard);
   });
@@ -232,9 +232,9 @@ export function registerCallbacks(bot: any): void {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const cfg = getConfig();
-    updateConfig({ showOriginal: !cfg.showOriginal });
-    const updated = getConfig();
+    const cfg = await getConfig();
+    await updateConfig({ showOriginal: !cfg.showOriginal });
+    const updated = await getConfig();
     const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal);
     await safeReply(ctx, text, keyboard);
   });
@@ -247,7 +247,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getSetSignaturePrompt();
     await safeReply(ctx, text, keyboard);
-    setPendingInput(ctx.from!.id, "setsignature");
+    await setPendingInput(ctx.from!.id, "setsignature");
   });
 
   bot.callbackQuery("setting:language", async (ctx: Context) => {
@@ -267,8 +267,8 @@ export function registerCallbacks(bot: any): void {
       return;
     }
     const lang = ctx.callbackQuery?.data?.split(":")[2] || "am";
-    updateConfig({ translatedLang: lang });
-    const cfg = getConfig();
+    await updateConfig({ translatedLang: lang });
+    const cfg = await getConfig();
     const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal);
     const langNames: Record<string, string> = {
       am: "Amharic", ar: "Arabic", fr: "French",
@@ -284,16 +284,16 @@ export function registerCallbacks(bot: any): void {
     const text = (ctx.message?.text || "").trim();
     if (!text) return;
 
-    const state = getPendingInput(userId);
+    const state = await getPendingInput(userId);
 
     // No pending flow: a bare @username is treated as adding a source channel
     if (!state) {
       const match = text.match(/^@[A-Za-z0-9_]{3,}$/);
       if (match) {
         const username = match[0];
-        const added = addSourceChannel(username, userId);
+        const added = await addSourceChannel(username, userId);
         if (added) {
-          const channels = getChannels();
+          const channels = await getChannels();
           await ctx.reply(`✅ ${username} added as source channel.\n\nTotal sources: ${channels.length}\n\nTap 📥 Source Channels to add more, or 📤 Target Channels to set the output.`);
         } else {
           await ctx.reply(`ℹ️ ${username} is already a source channel.`);
@@ -303,7 +303,7 @@ export function registerCallbacks(bot: any): void {
     }
 
     if (text === "/cancel") {
-      clearPendingInput(userId);
+      await clearPendingInput(userId);
       const { text: menuText, keyboard } = getMainMenu();
       await ctx.reply(menuText, { reply_markup: keyboard });
       return;
@@ -319,15 +319,15 @@ export function registerCallbacks(bot: any): void {
         const skipped: string[] = [];
         let added = 0;
         for (const username of usernames) {
-          if (addSourceChannel(username, userId)) {
+          if (await addSourceChannel(username, userId)) {
             added++;
           } else {
             skipped.push(username);
           }
         }
-        clearPendingInput(userId);
+        await clearPendingInput(userId);
         const { text: menuText, keyboard } = getChannelsMenu();
-        const lines = [`✅ Added: ${added}`, `Total sources: ${getChannels().length}`];
+        const lines = [`✅ Added: ${added}`, `Total sources: ${(await getChannels()).length}`];
         if (skipped.length > 0) lines.push(`Already present: ${skipped.join(", ")}`);
         lines.push("", menuText);
         await ctx.reply(lines.join("\n"), { reply_markup: keyboard });
@@ -340,16 +340,16 @@ export function registerCallbacks(bot: any): void {
           return;
         }
         const unique = [...new Set(usernames)];
-        updateConfig({ targetChannels: unique, targetChannel: unique[0] });
-        clearPendingInput(userId);
+        await updateConfig({ targetChannels: unique, targetChannel: unique[0] });
+        await clearPendingInput(userId);
         const { text: menuText, keyboard } = getChannelsMenu();
         await ctx.reply(`✅ Target channels set:\n\n${unique.join("\n")}\n\nTotal: ${unique.length}\n\n${menuText}`, { reply_markup: keyboard });
         break;
       }
       case "setsignature": {
-        updateConfig({ signature: text });
-        clearPendingInput(userId);
-        const cfg = getConfig();
+        await updateConfig({ signature: text });
+        await clearPendingInput(userId);
+        const cfg = await getConfig();
         const { text: menuText, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal);
         await ctx.reply(`✅ Signature set.\n\n${menuText}`, { reply_markup: keyboard });
         break;

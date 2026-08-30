@@ -1,40 +1,11 @@
-import * as fs from "fs";
-import * as path from "path";
-import { config } from "../config";
-import { BotConfig, Channel, ProcessedPost, StorageData } from "../types";
+import { BotConfig, Channel, ProcessedPost } from "../types";
+import { dbGet, dbSet } from "./db";
 export { ProcessedPost } from "../types";
 
-const DATA_DIR = "/tmp/bot-data";
-
-function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
-function readJsonFile<T>(filename: string, defaultValue: T): T {
-  ensureDataDir();
-  const filePath = path.join(DATA_DIR, filename);
-  try {
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(content).data;
-    }
-  } catch {
-    // Return default on error
-  }
-  return defaultValue;
-}
-
-function writeJsonFile<T>(filename: string, data: T): void {
-  ensureDataDir();
-  const filePath = path.join(DATA_DIR, filename);
-  const payload: StorageData<T> = {
-    data,
-    lastUpdated: new Date().toISOString(),
-  };
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf-8");
-}
+const KEY_CONFIG = "config";
+const KEY_CHANNELS = "channels";
+const KEY_PROCESSED = "processed";
+const KEY_PENDING = "pending";
 
 // Bot Config
 const DEFAULT_CONFIG: BotConfig = {
@@ -46,23 +17,19 @@ const DEFAULT_CONFIG: BotConfig = {
   showOriginal: false,
 };
 
-export function getConfig(): BotConfig {
-  const cfg = readJsonFile<BotConfig>("config.json", DEFAULT_CONFIG);
+export async function getConfig(): Promise<BotConfig> {
+  const cfg = (await dbGet<BotConfig>(KEY_CONFIG)) || DEFAULT_CONFIG;
   // Migrate legacy single targetChannel into targetChannels
   if (cfg.targetChannel && (!cfg.targetChannels || cfg.targetChannels.length === 0)) {
     const migrated = { ...cfg, targetChannels: [cfg.targetChannel] };
-    writeJsonFile("config.json", migrated);
+    await dbSet(KEY_CONFIG, migrated);
     return migrated;
   }
   return cfg;
 }
 
-export function getTargetChannels(): string[] {
-  return getConfig().targetChannels || [];
-}
-
-export function updateConfig(updates: Partial<BotConfig>): BotConfig {
-  const current = getConfig();
+export async function updateConfig(updates: Partial<BotConfig>): Promise<BotConfig> {
+  const current = await getConfig();
   const updated = { ...current, ...updates };
   if (updates.targetChannel !== undefined && updates.targetChannels === undefined) {
     updated.targetChannels = updates.targetChannel ? [updates.targetChannel] : [];
@@ -70,17 +37,22 @@ export function updateConfig(updates: Partial<BotConfig>): BotConfig {
   if (updated.targetChannels !== undefined) {
     updated.targetChannel = updated.targetChannels.length > 0 ? updated.targetChannels[0] : null;
   }
-  writeJsonFile("config.json", updated);
+  await dbSet(KEY_CONFIG, updated);
   return updated;
 }
 
-// Channels
-export function getChannels(): Channel[] {
-  return readJsonFile<Channel[]>("channels.json", []);
+export async function getTargetChannels(): Promise<string[]> {
+  const cfg = await getConfig();
+  return cfg.targetChannels || [];
 }
 
-export function addChannel(channel: Channel): Channel[] {
-  const channels = getChannels();
+// Channels
+export async function getChannels(): Promise<Channel[]> {
+  return (await dbGet<Channel[]>(KEY_CHANNELS)) || [];
+}
+
+export async function addChannel(channel: Channel): Promise<Channel[]> {
+  const channels = await getChannels();
   const exists = channels.some(
     (c) => c.username.toLowerCase() === channel.username.toLowerCase()
   );
@@ -88,87 +60,90 @@ export function addChannel(channel: Channel): Channel[] {
     return channels;
   }
   channels.push(channel);
-  writeJsonFile("channels.json", channels);
+  await dbSet(KEY_CHANNELS, channels);
   return channels;
 }
 
-export function removeChannel(username: string): Channel[] {
-  let channels = getChannels();
+export async function removeChannel(username: string): Promise<Channel[]> {
+  let channels = await getChannels();
   channels = channels.filter(
     (c) => c.username.toLowerCase() !== username.toLowerCase()
   );
-  writeJsonFile("channels.json", channels);
+  await dbSet(KEY_CHANNELS, channels);
   return channels;
 }
 
 // Processed Posts
-export function getProcessedPosts(): ProcessedPost[] {
-  return readJsonFile<ProcessedPost[]>("processed.json", []);
+export async function getProcessedPosts(): Promise<ProcessedPost[]> {
+  return (await dbGet<ProcessedPost[]>(KEY_PROCESSED)) || [];
 }
 
-export function markAsProcessed(post: ProcessedPost): void {
-  const posts = getProcessedPosts();
+export async function markAsProcessed(post: ProcessedPost): Promise<void> {
+  const posts = await getProcessedPosts();
   const exists = posts.some(
     (p) => p.channelId === post.channelId && p.messageId === post.messageId
   );
   if (!exists) {
     posts.push(post);
-    // Keep only last 1000 posts to prevent file bloat
+    // Keep only last 1000 posts to prevent bloat
     const trimmed = posts.slice(-1000);
-    writeJsonFile("processed.json", trimmed);
+    await dbSet(KEY_PROCESSED, trimmed);
   }
 }
 
-export function isProcessed(channelId: string, messageId: number): boolean {
-  const posts = getProcessedPosts();
+export async function isProcessed(channelId: string, messageId: number): Promise<boolean> {
+  const posts = await getProcessedPosts();
   return posts.some(
     (p) => p.channelId === channelId && p.messageId === messageId
   );
 }
 
-export function getProcessedPost(channelId: string, messageId: number): ProcessedPost | undefined {
-  const posts = getProcessedPosts();
+export async function getProcessedPost(
+  channelId: string,
+  messageId: number
+): Promise<ProcessedPost | undefined> {
+  const posts = await getProcessedPosts();
   return posts.find(
     (p) => p.channelId === channelId && p.messageId === messageId
   );
 }
 
-export function getProcessedPostByTargetMessage(
+export async function getProcessedPostByTargetMessage(
   chatId: string | number,
   messageId: number
-): ProcessedPost | undefined {
-  const posts = getProcessedPosts();
+): Promise<ProcessedPost | undefined> {
+  const posts = await getProcessedPosts();
   return posts.find((p) => {
     if (p.targetMessageIds && p.targetMessageIds[String(chatId)] === messageId) return true;
     return p.targetMessageId === messageId;
   });
 }
 
-// Pending multi-step menu input state (survives between serverless instances)
+// Pending multi-step menu input state
 interface PendingInput {
   state: string;
   at: string;
 }
 
-export function getPendingInput(userId: number): string | undefined {
-  const all = readJsonFile<Record<string, PendingInput>>("pending.json", {});
+export async function getPendingInput(userId: number): Promise<string | undefined> {
+  const all = (await dbGet<Record<string, PendingInput>>(KEY_PENDING)) || {};
   const entry = all[String(userId)];
   if (!entry) return undefined;
   if (Date.now() - new Date(entry.at).getTime() > 10 * 60 * 1000) {
-    clearPendingInput(userId);
+    await clearPendingInput(userId);
     return undefined;
   }
   return entry.state;
 }
 
-export function setPendingInput(userId: number, state: string): void {
-  const all = readJsonFile<Record<string, PendingInput>>("pending.json", {});
+export async function setPendingInput(userId: number, state: string): Promise<void> {
+  const all = (await dbGet<Record<string, PendingInput>>(KEY_PENDING)) || {};
   all[String(userId)] = { state, at: new Date().toISOString() };
-  writeJsonFile("pending.json", all);
+  await dbSet(KEY_PENDING, all);
 }
 
-export function clearPendingInput(userId: number): void {
-  const all = readJsonFile<Record<string, PendingInput>>("pending.json", {});
+export async function clearPendingInput(userId: number): Promise<void> {
+  const all = (await dbGet<Record<string, PendingInput>>(KEY_PENDING)) || {};
   delete all[String(userId)];
-  writeJsonFile("pending.json", all);
+  await dbSet(KEY_PENDING, all);
 }

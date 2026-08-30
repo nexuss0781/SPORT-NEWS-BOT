@@ -82,11 +82,11 @@ async function handleOriginalCommand(ctx: Context, mode: "english" | "original")
   }
 
   const repliedMessageId = message.reply_to_message.message_id;
-  const cfg = getConfig();
+  const cfg = await getConfig();
 
   // Find the original post by target message ID (in this chat)
   const chatId = message.chat.id;
-  const post = getProcessedPostByTargetMessage(chatId, repliedMessageId);
+  const post = await getProcessedPostByTargetMessage(chatId, repliedMessageId);
 
   if (!post) {
     ctx.reply("❌ Could not find the original post. It may have been processed before this feature was added.");
@@ -145,7 +145,7 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
   const messageId = message.message_id;
 
   // Check if channel is monitored
-  const monitoredChannels = getChannels();
+  const monitoredChannels = await getChannels();
   const isMonitored = monitoredChannels.some(
     (c) => c.username.toLowerCase() === channelId.toLowerCase()
   );
@@ -153,7 +153,7 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
   if (!isMonitored) return;
 
   // Check if already processed
-  if (isProcessed(channelId, messageId)) return;
+  if (await isProcessed(channelId, messageId)) return;
 
   // Extract text content
   let text = "";
