@@ -19,7 +19,7 @@ export function registerStartCommands(bot: any): void {
     await ctx.reply(welcome, { reply_markup: keyboard });
   });
 
-  bot.help(async (ctx: Context) => {
+  bot.command("help", async (ctx: Context) => {
     const { text, keyboard } = getMainMenu();
     const help = [
       "╔══════════════════════════╗",
