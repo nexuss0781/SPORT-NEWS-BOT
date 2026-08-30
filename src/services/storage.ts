@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { config } from "../config";
 import { BotConfig, Channel, ProcessedPost, StorageData } from "../types";
+export { ProcessedPost } from "../types";
 
 const DATA_DIR = path.resolve(config.dataDir);
 
@@ -40,6 +41,8 @@ const DEFAULT_CONFIG: BotConfig = {
   targetChannel: null,
   signature: "",
   translatedLang: "am",
+  showEnglish: false,
+  showOriginal: false,
 };
 
 export function getConfig(): BotConfig {
@@ -103,4 +106,16 @@ export function isProcessed(channelId: string, messageId: number): boolean {
   return posts.some(
     (p) => p.channelId === channelId && p.messageId === messageId
   );
+}
+
+export function getProcessedPost(channelId: string, messageId: number): ProcessedPost | undefined {
+  const posts = getProcessedPosts();
+  return posts.find(
+    (p) => p.channelId === channelId && p.messageId === messageId
+  );
+}
+
+export function getProcessedPostByTargetMessage(targetMessageId: number): ProcessedPost | undefined {
+  const posts = getProcessedPosts();
+  return posts.find((p) => p.targetMessageId === targetMessageId);
 }

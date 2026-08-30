@@ -114,6 +114,22 @@ export function registerAdminCommands(bot: any): void {
     }
   });
 
+  // Toggle English display
+  bot.command("toggleenglish", adminOnly, async (ctx: Context) => {
+    const cfg = getConfig();
+    const newValue = !cfg.showEnglish;
+    updateConfig({ showEnglish: newValue });
+    ctx.reply(`✅ English display ${newValue ? "ON" : "OFF"}\n\nWhen ON: English translation shown above Amharic for non-English posts.`);
+  });
+
+  // Toggle Original display
+  bot.command("toggleoriginal", adminOnly, async (ctx: Context) => {
+    const cfg = getConfig();
+    const newValue = !cfg.showOriginal;
+    updateConfig({ showOriginal: newValue });
+    ctx.reply(`✅ Original text display ${newValue ? "ON" : "OFF"}\n\nWhen ON: Shows "Original: English" + "Translation: Amharic" format for English source posts.`);
+  });
+
   // Status
   bot.command("status", adminOnly, async (ctx: Context) => {
     const cfg = getConfig();
@@ -126,13 +142,21 @@ export function registerAdminCommands(bot: any): void {
       `🎯 Target Channel: ${cfg.targetChannel || "Not set"}`,
       `✍️ Signature: ${cfg.signature || "Not set"}`,
       `🌐 Translation Lang: ${cfg.translatedLang}`,
+      `🇬🇧 Show English: ${cfg.showEnglish ? "ON" : "OFF"}`,
+      `📝 Show Original: ${cfg.showOriginal ? "ON" : "OFF"}`,
       "",
-      "Commands:",
+      "Channel Commands:",
+      "/english - Show English + Amharic (reply to post)",
+      "/original - Show Original + Translation (reply to post)",
+      "",
+      "Admin Commands:",
       "/addchannel @channel - Add channel",
       "/removechannel @channel - Remove channel",
       "/listchannels - List channels",
       "/settarget @channel - Set output channel",
       "/setsignature text - Set footer",
+      "/toggleenglish - Toggle English display",
+      "/toggleoriginal - Toggle Original display",
     ].join("\n");
 
     ctx.reply(status);

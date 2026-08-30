@@ -13,6 +13,8 @@ export function registerStartCommands(bot: any): void {
       "/listchannels - List monitored channels",
       "/settarget @channel - Set output channel",
       "/setsignature text - Set footer signature",
+      "/toggleenglish - Toggle English display",
+      "/toggleoriginal - Toggle Original display",
       "/status - Bot status",
       "",
       "ℹ️ /help - Show this message",
@@ -29,6 +31,10 @@ export function registerStartCommands(bot: any): void {
       "/start - Welcome message",
       "/help - This help message",
       "",
+      "🔹 Channel Commands (reply to translated post):",
+      "/english - Show English + Amharic side by side",
+      "/original - Show Original + Translation",
+      "",
       "🔹 Admin Commands:",
       "/addchannel @channel - Add channel to monitor",
       "/removechannel @channel - Remove channel",
@@ -36,6 +42,8 @@ export function registerStartCommands(bot: any): void {
       "/settarget @channel - Set output channel",
       "/setsignature text - Set footer signature",
       "/getsignature - View current signature",
+      "/toggleenglish - Toggle English above Amharic",
+      "/toggleoriginal - Toggle Original + Translation format",
       "/status - Bot status & config",
     ].join("\n");
 

@@ -4,35 +4,52 @@ const CHUNK_SIZE = 4500;
 
 export async function translateToAmharic(
   text: string
-): Promise<string> {
+): Promise<{ amharic: string; english: string; sourceLang: string }> {
+  if (!text || text.trim().length === 0) {
+    return { amharic: text, english: text, sourceLang: "en" };
+  }
+
+  // Detect source language
+  const sourceLang = await detectLanguage(text);
+
+  // If already English, just translate to Amharic
+  if (sourceLang === "en") {
+    const amharic = await translateChunk(text, "am");
+    return { amharic, english: text, sourceLang: "en" };
+  }
+
+  // For non-English: translate to English first, then to Amharic
+  let englishText = text;
+  if (sourceLang !== "en") {
+    englishText = await translateChunk(text, "en");
+  }
+
+  const amharic = await translateChunk(englishText, "am");
+  return { amharic, english: englishText, sourceLang };
+}
+
+export async function translateToEnglish(text: string): Promise<string> {
   if (!text || text.trim().length === 0) {
     return text;
   }
-
-  // If text is short enough, translate directly
-  if (text.length <= CHUNK_SIZE) {
-    return await translateChunk(text);
-  }
-
-  // Split long text into chunks
-  const chunks = splitText(text, CHUNK_SIZE);
-  const translatedChunks: string[] = [];
-
-  for (const chunk of chunks) {
-    const translated = await translateChunk(chunk);
-    translatedChunks.push(translated);
-  }
-
-  return translatedChunks.join("\n\n");
+  return await translateChunk(text, "en");
 }
 
-async function translateChunk(text: string): Promise<string> {
+export async function detectLanguage(text: string): Promise<string> {
   try {
-    const result = await translate(text, { to: "am" });
+    const result = await translate(text, { to: "en" });
+    return (result as any).from?.language?.iso || "en";
+  } catch {
+    return "en";
+  }
+}
+
+async function translateChunk(text: string, targetLang: string): Promise<string> {
+  try {
+    const result = await translate(text, { to: targetLang });
     return result.text;
   } catch (error) {
     console.error("Translation error:", error);
-    // Return original text if translation fails
     return text;
   }
 }
