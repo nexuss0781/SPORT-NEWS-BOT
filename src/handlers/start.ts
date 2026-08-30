@@ -2,7 +2,7 @@ import { Context, InlineKeyboard } from "grammy";
 import { getMainMenu } from "../menus/index";
 
 export function registerStartCommands(bot: any): void {
-  bot.start(async (ctx: Context) => {
+  bot.command("start", async (ctx: Context) => {
     const { text, keyboard } = getMainMenu();
     const welcome = [
       "╔══════════════════════════╗",
