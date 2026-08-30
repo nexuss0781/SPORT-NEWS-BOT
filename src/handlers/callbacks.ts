@@ -210,7 +210,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getSetTargetPrompt();
     await safeReply(ctx, text, keyboard);
-    await setPendingInput(ctx.from!.id, "settarget");
+    await setPendingInput(ctx.from!.id, "addtarget");
   });
 
   bot.callbackQuery("setting:toggle:english", async (ctx: Context) => {
@@ -333,7 +333,8 @@ export function registerCallbacks(bot: any): void {
         await ctx.reply(lines.join("\n"), { reply_markup: keyboard });
         break;
       }
-      case "addtarget": {
+      case "addtarget":
+      case "settarget": {
         const usernames = parseChannels(text);
         if (usernames.length === 0) {
           await ctx.reply("⚠️ No valid channels found. Send usernames like: @sport_news, @sport_news2");
