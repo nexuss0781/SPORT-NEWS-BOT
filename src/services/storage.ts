@@ -143,3 +143,32 @@ export function getProcessedPostByTargetMessage(
     return p.targetMessageId === messageId;
   });
 }
+
+// Pending multi-step menu input state (survives between serverless instances)
+interface PendingInput {
+  state: string;
+  at: string;
+}
+
+export function getPendingInput(userId: number): string | undefined {
+  const all = readJsonFile<Record<string, PendingInput>>("pending.json", {});
+  const entry = all[String(userId)];
+  if (!entry) return undefined;
+  if (Date.now() - new Date(entry.at).getTime() > 10 * 60 * 1000) {
+    clearPendingInput(userId);
+    return undefined;
+  }
+  return entry.state;
+}
+
+export function setPendingInput(userId: number, state: string): void {
+  const all = readJsonFile<Record<string, PendingInput>>("pending.json", {});
+  all[String(userId)] = { state, at: new Date().toISOString() };
+  writeJsonFile("pending.json", all);
+}
+
+export function clearPendingInput(userId: number): void {
+  const all = readJsonFile<Record<string, PendingInput>>("pending.json", {});
+  delete all[String(userId)];
+  writeJsonFile("pending.json", all);
+}

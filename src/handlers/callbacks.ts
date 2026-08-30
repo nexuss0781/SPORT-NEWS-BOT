@@ -18,11 +18,26 @@ import {
   removeChannel,
   getConfig,
   updateConfig,
+  getPendingInput,
+  setPendingInput,
+  clearPendingInput,
 } from "../services/storage";
-import { Channel } from "../types";
 import { isAdmin } from "../config";
 
-const awaitingInput = new Map<number, string>();
+function addSourceChannel(username: string, addedBy: number): boolean {
+  const channels = getChannels();
+  const exists = channels.some(
+    (c) => c.username.toLowerCase() === username.toLowerCase()
+  );
+  if (exists) return false;
+  addChannel({
+    id: username,
+    username,
+    addedAt: new Date().toISOString(),
+    addedBy,
+  });
+  return true;
+}
 
 function parseChannels(input: string): string[] {
   return input
@@ -112,7 +127,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getAddChannelPrompt();
     await safeReply(ctx, text, keyboard);
-    awaitingInput.set(ctx.from!.id, "addsource");
+    setPendingInput(ctx.from!.id, "addsource");
   });
 
   bot.callbackQuery("channel:remove", async (ctx: Context) => {
@@ -195,7 +210,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getSetTargetPrompt();
     await safeReply(ctx, text, keyboard);
-    awaitingInput.set(ctx.from!.id, "settarget");
+    setPendingInput(ctx.from!.id, "settarget");
   });
 
   bot.callbackQuery("setting:toggle:english", async (ctx: Context) => {
@@ -232,7 +247,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getSetSignaturePrompt();
     await safeReply(ctx, text, keyboard);
-    awaitingInput.set(ctx.from!.id, "setsignature");
+    setPendingInput(ctx.from!.id, "setsignature");
   });
 
   bot.callbackQuery("setting:language", async (ctx: Context) => {
@@ -264,16 +279,31 @@ export function registerCallbacks(bot: any): void {
 
   bot.on("message:text", async (ctx: Context) => {
     const userId = ctx.from?.id;
-    if (!userId) return;
+    if (!userId || !isAdmin(userId)) return;
 
-    const state = awaitingInput.get(userId);
-    if (!state) return;
-
-    const text = ctx.message?.text;
+    const text = (ctx.message?.text || "").trim();
     if (!text) return;
 
+    const state = getPendingInput(userId);
+
+    // No pending flow: a bare @username is treated as adding a source channel
+    if (!state) {
+      const match = text.match(/^@[A-Za-z0-9_]{3,}$/);
+      if (match) {
+        const username = match[0];
+        const added = addSourceChannel(username, userId);
+        if (added) {
+          const channels = getChannels();
+          await ctx.reply(`✅ ${username} added as source channel.\n\nTotal sources: ${channels.length}\n\nTap 📥 Source Channels to add more, or 📤 Target Channels to set the output.`);
+        } else {
+          await ctx.reply(`ℹ️ ${username} is already a source channel.`);
+        }
+      }
+      return;
+    }
+
     if (text === "/cancel") {
-      awaitingInput.delete(userId);
+      clearPendingInput(userId);
       const { text: menuText, keyboard } = getMainMenu();
       await ctx.reply(menuText, { reply_markup: keyboard });
       return;
@@ -286,29 +316,18 @@ export function registerCallbacks(bot: any): void {
           await ctx.reply("⚠️ No valid channels found. Send usernames like: @sky_sports, @united");
           return;
         }
-        const channels = getChannels();
-        let added = 0;
         const skipped: string[] = [];
+        let added = 0;
         for (const username of usernames) {
-          const exists = channels.some(
-            (c) => c.username.toLowerCase() === username.toLowerCase()
-          );
-          if (exists) {
+          if (addSourceChannel(username, userId)) {
+            added++;
+          } else {
             skipped.push(username);
-            continue;
           }
-          const channel: Channel = {
-            id: username,
-            username,
-            addedAt: new Date().toISOString(),
-            addedBy: userId,
-          };
-          addChannel(channel);
-          added++;
         }
-        awaitingInput.delete(userId);
+        clearPendingInput(userId);
         const { text: menuText, keyboard } = getChannelsMenu();
-        const lines = [`✅ Added: ${added}`, `Total sources: ${channels.length + added}`];
+        const lines = [`✅ Added: ${added}`, `Total sources: ${getChannels().length}`];
         if (skipped.length > 0) lines.push(`Already present: ${skipped.join(", ")}`);
         lines.push("", menuText);
         await ctx.reply(lines.join("\n"), { reply_markup: keyboard });
@@ -322,14 +341,14 @@ export function registerCallbacks(bot: any): void {
         }
         const unique = [...new Set(usernames)];
         updateConfig({ targetChannels: unique, targetChannel: unique[0] });
-        awaitingInput.delete(userId);
+        clearPendingInput(userId);
         const { text: menuText, keyboard } = getChannelsMenu();
         await ctx.reply(`✅ Target channels set:\n\n${unique.join("\n")}\n\nTotal: ${unique.length}\n\n${menuText}`, { reply_markup: keyboard });
         break;
       }
       case "setsignature": {
         updateConfig({ signature: text });
-        awaitingInput.delete(userId);
+        clearPendingInput(userId);
         const cfg = getConfig();
         const { text: menuText, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal);
         await ctx.reply(`✅ Signature set.\n\n${menuText}`, { reply_markup: keyboard });
