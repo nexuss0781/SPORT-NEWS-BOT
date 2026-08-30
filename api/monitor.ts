@@ -4,6 +4,7 @@ import { getChannels, getTargetChannels, isProcessed } from "../src/services/sto
 import {
   createMonitorClient,
   fetchRecentMessages,
+  downloadMedia,
 } from "../src/services/mtproto";
 import { processAndPublish } from "../src/services/publisher";
 
@@ -52,7 +53,11 @@ export default async function handler(req: any, res: any) {
         if (now - msg.date > LOOKBACK_SECONDS) continue;
 
         try {
-          await processAndPublish(bot.api as any, ch.username, msg.messageId, msg.text);
+          let media: any;
+          if (msg.hasMedia && msg.raw) {
+            media = await downloadMedia(client, msg.raw);
+          }
+          await processAndPublish(bot.api as any, ch.username, msg.messageId, msg.text, media);
           results.push({ channel: ch.username, messageId: msg.messageId, ok: true });
         } catch (error: any) {
           results.push({

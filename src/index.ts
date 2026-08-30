@@ -9,7 +9,7 @@ import {
   isProcessed,
   getProcessedPostByTargetMessage,
 } from "./services/storage";
-import { processAndPublish } from "./services/publisher";
+import { processAndPublish, MediaPayload } from "./services/publisher";
 import { getMainMenu } from "./menus/index";
 
 export function createBot(): Bot {
@@ -81,11 +81,12 @@ async function handleOriginalCommand(ctx: Context, mode: "english" | "original")
     return;
   }
 
-  const repliedMessageId = message.reply_to_message.message_id;
+  const replied = message.reply_to_message;
+  const repliedMessageId = replied.message_id;
+  const chatId = message.chat.id;
   const cfg = await getConfig();
 
   // Find the original post by target message ID (in this chat)
-  const chatId = message.chat.id;
   const post = await getProcessedPostByTargetMessage(chatId, repliedMessageId);
 
   if (!post) {
@@ -93,47 +94,54 @@ async function handleOriginalCommand(ctx: Context, mode: "english" | "original")
     return;
   }
 
-  // Check if the source language is English
-  const isEnglishSource = post.sourceLang === "en";
-
-  let response: string;
+  const sig = cfg.signature ? `\n\n—\n${cfg.signature}` : "";
+  let content: string;
 
   if (mode === "english") {
-    if (isEnglishSource) {
-      // Source is English - show Original: English, Translation: Amharic
-      response = [
+    if (post.sourceLang === "en") {
+      content = [
         "🇬🇧 Original:",
         post.originalText,
         "",
         "🇪🇹 Translation:",
         post.translatedText,
-      ].join("\n");
+      ].join("\n") + sig;
     } else {
-      // Source is not English - show English translation and Amharic
-      if (!post.englishText) {
-        ctx.reply("❌ English translation not available for this post.");
-        return;
-      }
-      response = [
+      content = [
         "🇬🇧 English:",
-        post.englishText,
+        post.englishText || post.originalText,
         "",
-        "🇪🇹 Amharic:",
+        "📢 Amharic:",
         post.translatedText,
-      ].join("\n");
+      ].join("\n") + sig;
     }
   } else {
-    // /original - always show original source
-    response = [
-      `📝 Original (${post.sourceLang.toUpperCase()}):`,
+    content = [
+      `📝 Original (${(post.sourceLang || "?").toUpperCase()}):`,
       post.originalText,
       "",
       "🇪🇹 Translation:",
       post.translatedText,
-    ].join("\n");
+    ].join("\n") + sig;
   }
 
-  ctx.reply(response);
+  const hasMedia =
+    Boolean((replied as any).photo) ||
+    Boolean((replied as any).video) ||
+    Boolean((replied as any).animation) ||
+    Boolean((replied as any).document) ||
+    Boolean((replied as any).audio) ||
+    Boolean((replied as any).voice);
+
+  try {
+    if (hasMedia) {
+      await ctx.api.editMessageCaption(chatId, repliedMessageId, { caption: content });
+    } else {
+      await ctx.api.editMessageText(chatId, repliedMessageId, content);
+    }
+  } catch (e) {
+    await ctx.reply(content);
+  }
 }
 
 async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> {
@@ -163,11 +171,72 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
     text = message.caption;
   }
 
-  if (!text || text.trim().length === 0) return;
+  if (!text || text.trim().length === 0) {
+    if (!isMediaMessage(message)) return;
+  }
 
   try {
-    await processAndPublish(ctx.api, channelId, messageId, text.trim());
+    const media = extractMedia(message);
+    await processAndPublish(ctx.api, channelId, messageId, text.trim(), media);
   } catch (error) {
     console.error(`Error processing post from ${channelId}:`, error);
   }
+}
+
+function isMediaMessage(message: any): boolean {
+  return Boolean(
+    message?.photo ||
+    message?.video ||
+    message?.animation ||
+    message?.document ||
+    message?.audio ||
+    message?.voice
+  );
+}
+
+function extractMedia(message: any): MediaPayload | undefined {
+  if (message?.photo && message.photo.length) {
+    const best = message.photo[message.photo.length - 1];
+    return { kind: "photo", value: best.file_id, width: best.width, height: best.height };
+  }
+  if (message?.video) {
+    return {
+      kind: "video",
+      value: message.video.file_id,
+      fileName: message.video.file_name,
+      mimeType: message.video.mime_type,
+      duration: message.video.duration,
+      width: message.video.width,
+      height: message.video.height,
+    };
+  }
+  if (message?.animation) {
+    return {
+      kind: "animation",
+      value: message.animation.file_id,
+      fileName: message.animation.file_name,
+      mimeType: message.animation.mime_type,
+      duration: message.animation.duration,
+      width: message.animation.width,
+      height: message.animation.height,
+    };
+  }
+  if (message?.audio) {
+    return {
+      kind: "audio",
+      value: message.audio.file_id,
+      fileName: message.audio.file_name,
+      mimeType: message.audio.mime_type,
+      duration: message.audio.duration,
+    };
+  }
+  if (message?.document) {
+    return {
+      kind: "document",
+      value: message.document.file_id,
+      fileName: message.document.file_name,
+      mimeType: message.document.mime_type,
+    };
+  }
+  return undefined;
 }
