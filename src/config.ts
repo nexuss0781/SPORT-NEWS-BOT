@@ -13,6 +13,7 @@ export const config = {
   dataDir: "./data",
 } as const;
 
-export function isAdmin(userId: number): boolean {
+export function isAdmin(userId: number | undefined): boolean {
+  if (!userId) return false;
   return config.adminIds.includes(userId);
 }
