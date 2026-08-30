@@ -14,7 +14,18 @@ import { translateToAmharic } from "./services/translator";
 import { getMainMenu } from "./menus/index";
 
 export function createBot(): Bot {
-  const bot = new Bot(config.botToken);
+  const bot = new Bot(config.botToken, {
+    botInfo: {
+      id: 8830869191,
+      is_bot: true,
+      first_name: "SPORT NEWS ⚽️",
+      username: "ethioutdbot",
+      can_join_groups: true,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+    },
+  });
 
   // Register command handlers
   registerStartCommands(bot);
