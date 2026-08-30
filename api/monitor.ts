@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import { config } from "../src/config";
-import { getChannels, getConfig, isProcessed } from "../src/services/storage";
+import { getChannels, getTargetChannels, isProcessed } from "../src/services/storage";
 import {
   createMonitorClient,
   fetchRecentMessages,
@@ -32,9 +32,9 @@ export default async function handler(req: any, res: any) {
 
   try {
     const channels = getChannels();
-    const cfg = getConfig();
+    const targets = getTargetChannels();
 
-    if (!channels.length || !cfg.targetChannel) {
+    if (!channels.length || targets.length === 0) {
       res.status(200).json({ ok: true, message: "No channels or target configured" });
       return;
     }

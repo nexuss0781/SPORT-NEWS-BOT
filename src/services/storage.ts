@@ -39,6 +39,7 @@ function writeJsonFile<T>(filename: string, data: T): void {
 // Bot Config
 const DEFAULT_CONFIG: BotConfig = {
   targetChannel: null,
+  targetChannels: [],
   signature: "",
   translatedLang: "am",
   showEnglish: false,
@@ -46,12 +47,29 @@ const DEFAULT_CONFIG: BotConfig = {
 };
 
 export function getConfig(): BotConfig {
-  return readJsonFile<BotConfig>("config.json", DEFAULT_CONFIG);
+  const cfg = readJsonFile<BotConfig>("config.json", DEFAULT_CONFIG);
+  // Migrate legacy single targetChannel into targetChannels
+  if (cfg.targetChannel && (!cfg.targetChannels || cfg.targetChannels.length === 0)) {
+    const migrated = { ...cfg, targetChannels: [cfg.targetChannel] };
+    writeJsonFile("config.json", migrated);
+    return migrated;
+  }
+  return cfg;
+}
+
+export function getTargetChannels(): string[] {
+  return getConfig().targetChannels || [];
 }
 
 export function updateConfig(updates: Partial<BotConfig>): BotConfig {
   const current = getConfig();
   const updated = { ...current, ...updates };
+  if (updates.targetChannel !== undefined && updates.targetChannels === undefined) {
+    updated.targetChannels = updates.targetChannel ? [updates.targetChannel] : [];
+  }
+  if (updated.targetChannels !== undefined) {
+    updated.targetChannel = updated.targetChannels.length > 0 ? updated.targetChannels[0] : null;
+  }
   writeJsonFile("config.json", updated);
   return updated;
 }
@@ -115,7 +133,13 @@ export function getProcessedPost(channelId: string, messageId: number): Processe
   );
 }
 
-export function getProcessedPostByTargetMessage(targetMessageId: number): ProcessedPost | undefined {
+export function getProcessedPostByTargetMessage(
+  chatId: string | number,
+  messageId: number
+): ProcessedPost | undefined {
   const posts = getProcessedPosts();
-  return posts.find((p) => p.targetMessageId === targetMessageId);
+  return posts.find((p) => {
+    if (p.targetMessageIds && p.targetMessageIds[String(chatId)] === messageId) return true;
+    return p.targetMessageId === messageId;
+  });
 }

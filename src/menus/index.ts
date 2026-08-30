@@ -29,16 +29,23 @@ export function getChannelsMenu(): { text: string; keyboard: InlineKeyboard } {
     "║   📺 CHANNEL MANAGEMENT  ║",
     "╚══════════════════════════╝",
     "",
-    "Manage monitored channels",
-    "and target output channel.",
+    "Source Channels = where posts",
+    "are fetched (no admin needed).",
+    "Target Channels = where posts",
+    "are published (bot is admin).",
+    "",
+    "You can enter multiple channels",
+    "separated by comma or space:",
+    "",
+    "Example: @sky @united @goal",
   ].join("\n");
 
   const keyboard = new InlineKeyboard()
-    .text("➕ Add Channel", "channel:add")
-    .text("➖ Remove Channel", "channel:remove")
+    .text("📥 Source Channels", "channel:add")
+    .text("📤 Target Channels", "channel:target")
     .row()
+    .text("➖ Remove Channel", "channel:remove")
     .text("📋 List Channels", "channel:list")
-    .text("🎯 Set Target", "channel:target")
     .row()
     .text("◀️ Back", "menu:main");
 
@@ -81,18 +88,19 @@ export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean): { 
 // Status Menu
 export function getStatusMenu(data: {
   channels: number;
-  target: string | null;
+  target: string[];
   signature: string;
   showEnglish: boolean;
   showOriginal: boolean;
 }): { text: string; keyboard: InlineKeyboard } {
+  const targets = data.target.length > 0 ? data.target.join(", ") : "Not set";
   const text = [
     "╔══════════════════════════╗",
     "║   📊 BOT STATUS          ║",
     "╚══════════════════════════╝",
     "",
-    `📺 Monitored: ${data.channels} channels`,
-    `🎯 Target: ${data.target || "Not set"}`,
+    `📺 Sources: ${data.channels} channels`,
+    `📤 Targets: ${targets}`,
     `✍️ Signature: ${data.signature || "Not set"}`,
     `🇬🇧 English: ${data.showEnglish ? "ON" : "OFF"}`,
     `📝 Original: ${data.showOriginal ? "ON" : "OFF"}`,
@@ -145,16 +153,19 @@ export function getConfirmDialog(message: string, confirmAction: string, cancelA
   return { text, keyboard };
 }
 
-// Add Channel Prompt
+// Add Source Channels Prompt
 export function getAddChannelPrompt(): { text: string; keyboard: InlineKeyboard } {
   const text = [
     "╔══════════════════════════╗",
-    "║   ➕ ADD CHANNEL          ║",
+    "║   📥 ADD SOURCE CHANNELS ║",
     "╚══════════════════════════╝",
     "",
-    "Send the channel username:",
+    "Send channel username(s),",
+    "multiple separated by",
+    "comma or space:",
     "",
-    "Example: @channel_name",
+    "Example: @sky_sports @united",
+    "Example: @sky_sports, @united",
     "",
     "Or send /cancel to go back.",
   ].join("\n");
@@ -194,12 +205,15 @@ export function getRemoveChannelPrompt(channels: string[]): { text: string; keyb
 export function getSetTargetPrompt(): { text: string; keyboard: InlineKeyboard } {
   const text = [
     "╔══════════════════════════╗",
-    "║   🎯 SET TARGET CHANNEL   ║",
+    "║   📤 ADD TARGET CHANNELS ║",
     "╚══════════════════════════╝",
     "",
-    "Send the target channel username:",
+    "Send target channel username(s),",
+    "multiple separated by comma or",
+    "space. This REPLACES the current",
+    "target list:",
     "",
-    "Example: @your_output_channel",
+    "Example: @sport_news @sport_news2",
     "",
     "Or send /cancel to go back.",
   ].join("\n");

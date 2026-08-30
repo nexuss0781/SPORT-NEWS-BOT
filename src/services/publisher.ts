@@ -1,4 +1,4 @@
-import { getConfig, markAsProcessed } from "./storage";
+import { getConfig, getTargetChannels, markAsProcessed } from "./storage";
 import { translateToAmharic } from "./translator";
 import { BotConfig } from "../types";
 
@@ -13,7 +13,7 @@ interface SendApi {
     chatId: string,
     text: string,
     opts?: Record<string, unknown>
-  ): Promise<{ message_id: number }>;
+  ): Promise<{ message_id: number; chat?: { id: number } }>;
 }
 
 function buildPostContent(
@@ -48,16 +48,34 @@ export async function processAndPublish(
   text: string
 ): Promise<void> {
   const cfg = getConfig();
-  if (!cfg.targetChannel) return;
+  const targets = getTargetChannels();
+  if (targets.length === 0) return;
 
   const translation = await translateToAmharic(text);
   const content = buildPostContent(text, translation, cfg);
-  const sent = await api.sendMessage(cfg.targetChannel, content);
+  const targetMessageIds: Record<string, number> = {};
+  let firstSentId: number | undefined;
+
+  for (const target of targets) {
+    try {
+      const sent = await api.sendMessage(target, content);
+      const sentId = sent?.message_id;
+      if (sentId === undefined) continue;
+      const chatKey = sent?.chat?.id !== undefined ? String(sent.chat.id) : target;
+      targetMessageIds[chatKey] = sentId;
+      if (firstSentId === undefined) firstSentId = sentId;
+    } catch (error) {
+      console.error(`Error sending to target ${target}:`, error);
+    }
+  }
+
+  if (Object.keys(targetMessageIds).length === 0) return;
 
   markAsProcessed({
     channelId,
     messageId,
-    targetMessageId: sent?.message_id,
+    targetMessageIds,
+    targetMessageId: firstSentId,
     originalText: text,
     translatedText: translation.amharic,
     englishText: translation.english,

@@ -19,28 +19,39 @@ export function adminOnly(ctx: Context, next: () => Promise<void>): Promise<void
 }
 
 export function registerAdminCommands(bot: any): void {
-  // Add channel to monitor
+  // Add channel(s) to monitor (multiple separated by comma or space)
   bot.command("addchannel", adminOnly, async (ctx: Context) => {
     const args = ctx.message?.text?.split(" ").slice(1);
     if (!args || args.length === 0) {
-      ctx.reply("Usage: /addchannel @channel_username");
+      ctx.reply("Usage: /addchannel @ch1 @ch2 @ch3\n\nMultiple separated by comma or space.");
       return;
     }
 
-    let username = args[0];
-    if (!username.startsWith("@")) {
-      username = `@${username}`;
+    const raw = args.join(" ");
+    const usernames = raw
+      .split(/[\s,]+/)
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .map((u) => (u.startsWith("@") ? u : `@${u}`));
+
+    let added = 0;
+    for (const username of usernames) {
+      const exists = getChannels().some(
+        (c) => c.username.toLowerCase() === username.toLowerCase()
+      );
+      if (exists) continue;
+      const channel: Channel = {
+        id: username,
+        username,
+        addedAt: new Date().toISOString(),
+        addedBy: ctx.from!.id,
+      };
+      addChannel(channel);
+      added++;
     }
 
-    const channel: Channel = {
-      id: username,
-      username,
-      addedAt: new Date().toISOString(),
-      addedBy: ctx.from!.id,
-    };
-
-    const channels = addChannel(channel);
-    ctx.reply(`✅ Channel ${username} added.\n\nTotal monitored: ${channels.length}`);
+    const channels = getChannels();
+    ctx.reply(`✅ Added ${added} source channel(s).\n\nTotal monitored: ${channels.length}`);
   });
 
   // Remove channel
@@ -74,21 +85,24 @@ export function registerAdminCommands(bot: any): void {
     ctx.reply(`📺 Monitored Channels (${channels.length}):\n\n${list}`);
   });
 
-  // Set target channel
+  // Set target channel(s) (multiple separated by comma or space, replaces list)
   bot.command("settarget", adminOnly, async (ctx: Context) => {
     const args = ctx.message?.text?.split(" ").slice(1);
     if (!args || args.length === 0) {
-      ctx.reply("Usage: /settarget @your_channel");
+      ctx.reply("Usage: /settarget @ch1 @ch2\n\nMultiple separated by comma or space. Replaces current targets.");
       return;
     }
 
-    let username = args[0];
-    if (!username.startsWith("@")) {
-      username = `@${username}`;
-    }
+    const raw = args.join(" ");
+    const usernames = raw
+      .split(/[\s,]+/)
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .map((u) => (u.startsWith("@") ? u : `@${u}`));
 
-    updateConfig({ targetChannel: username });
-    ctx.reply(`✅ Target channel set to ${username}`);
+    const unique = [...new Set(usernames)];
+    updateConfig({ targetChannels: unique, targetChannel: unique[0] });
+    ctx.reply(`✅ Target channel(s) set:\n\n${unique.join("\n")}\n\nTotal: ${unique.length}`);
   });
 
   // Set signature
@@ -138,8 +152,8 @@ export function registerAdminCommands(bot: any): void {
     const status = [
       "🤖 Bot Status",
       "",
-      `📺 Monitored Channels: ${channels.length}`,
-      `🎯 Target Channel: ${cfg.targetChannel || "Not set"}`,
+      `📥 Source Channels: ${channels.length}`,
+      `📤 Target Channels: ${cfg.targetChannels.length ? cfg.targetChannels.join(", ") : "Not set"}`,
       `✍️ Signature: ${cfg.signature || "Not set"}`,
       `🌐 Translation Lang: ${cfg.translatedLang}`,
       `🇬🇧 Show English: ${cfg.showEnglish ? "ON" : "OFF"}`,

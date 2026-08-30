@@ -24,6 +24,14 @@ import { isAdmin } from "../config";
 
 const awaitingInput = new Map<number, string>();
 
+function parseChannels(input: string): string[] {
+  return input
+    .split(/[\s,]+/)
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map((c) => (c.startsWith("@") ? c : `@${c}`));
+}
+
 async function safeReply(ctx: Context, text: string, keyboard: any): Promise<void> {
   try {
     if (ctx.callbackQuery?.message) {
@@ -78,7 +86,7 @@ export function registerCallbacks(bot: any): void {
     const channels = getChannels();
     const { text, keyboard } = getStatusMenu({
       channels: channels.length,
-      target: cfg.targetChannel,
+      target: cfg.targetChannels,
       signature: cfg.signature,
       showEnglish: cfg.showEnglish,
       showOriginal: cfg.showOriginal,
@@ -104,7 +112,7 @@ export function registerCallbacks(bot: any): void {
     }
     const { text, keyboard } = getAddChannelPrompt();
     await safeReply(ctx, text, keyboard);
-    awaitingInput.set(ctx.from!.id, "addchannel");
+    awaitingInput.set(ctx.from!.id, "addsource");
   });
 
   bot.callbackQuery("channel:remove", async (ctx: Context) => {
@@ -272,29 +280,51 @@ export function registerCallbacks(bot: any): void {
     }
 
     switch (state) {
-      case "addchannel": {
-        let username = text.trim();
-        if (!username.startsWith("@")) username = `@${username}`;
-        const channel: Channel = {
-          id: username,
-          username,
-          addedAt: new Date().toISOString(),
-          addedBy: userId,
-        };
-        addChannel(channel);
+      case "addsource": {
+        const usernames = parseChannels(text);
+        if (usernames.length === 0) {
+          await ctx.reply("⚠️ No valid channels found. Send usernames like: @sky_sports, @united");
+          return;
+        }
         const channels = getChannels();
+        let added = 0;
+        const skipped: string[] = [];
+        for (const username of usernames) {
+          const exists = channels.some(
+            (c) => c.username.toLowerCase() === username.toLowerCase()
+          );
+          if (exists) {
+            skipped.push(username);
+            continue;
+          }
+          const channel: Channel = {
+            id: username,
+            username,
+            addedAt: new Date().toISOString(),
+            addedBy: userId,
+          };
+          addChannel(channel);
+          added++;
+        }
         awaitingInput.delete(userId);
         const { text: menuText, keyboard } = getChannelsMenu();
-        await ctx.reply(`✅ ${username} added.\n\nTotal: ${channels.length} channels.\n\n${menuText}`, { reply_markup: keyboard });
+        const lines = [`✅ Added: ${added}`, `Total sources: ${channels.length + added}`];
+        if (skipped.length > 0) lines.push(`Already present: ${skipped.join(", ")}`);
+        lines.push("", menuText);
+        await ctx.reply(lines.join("\n"), { reply_markup: keyboard });
         break;
       }
-      case "settarget": {
-        let username = text.trim();
-        if (!username.startsWith("@")) username = `@${username}`;
-        updateConfig({ targetChannel: username });
+      case "addtarget": {
+        const usernames = parseChannels(text);
+        if (usernames.length === 0) {
+          await ctx.reply("⚠️ No valid channels found. Send usernames like: @sport_news, @sport_news2");
+          return;
+        }
+        const unique = [...new Set(usernames)];
+        updateConfig({ targetChannels: unique, targetChannel: unique[0] });
         awaitingInput.delete(userId);
         const { text: menuText, keyboard } = getChannelsMenu();
-        await ctx.reply(`✅ Target set to ${username}.\n\n${menuText}`, { reply_markup: keyboard });
+        await ctx.reply(`✅ Target channels set:\n\n${unique.join("\n")}\n\nTotal: ${unique.length}\n\n${menuText}`, { reply_markup: keyboard });
         break;
       }
       case "setsignature": {

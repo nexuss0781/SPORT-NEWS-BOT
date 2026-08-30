@@ -84,8 +84,9 @@ async function handleOriginalCommand(ctx: Context, mode: "english" | "original")
   const repliedMessageId = message.reply_to_message.message_id;
   const cfg = getConfig();
 
-  // Find the original post by target message ID
-  const post = getProcessedPostByTargetMessage(repliedMessageId);
+  // Find the original post by target message ID (in this chat)
+  const chatId = message.chat.id;
+  const post = getProcessedPostByTargetMessage(chatId, repliedMessageId);
 
   if (!post) {
     ctx.reply("❌ Could not find the original post. It may have been processed before this feature was added.");

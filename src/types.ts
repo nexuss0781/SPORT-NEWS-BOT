@@ -7,6 +7,7 @@ export interface Channel {
 
 export interface BotConfig {
   targetChannel: string | null;
+  targetChannels: string[];
   signature: string;
   translatedLang: string;
   showEnglish: boolean;
@@ -16,6 +17,7 @@ export interface BotConfig {
 export interface ProcessedPost {
   channelId: string;
   messageId: number;
+  targetMessageIds?: Record<string, number>;
   targetMessageId?: number;
   originalText: string;
   translatedText: string;
