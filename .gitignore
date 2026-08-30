@@ -5,3 +5,5 @@ dist/
 .vercel/
 data/*.json
 !data/.gitkeep
+session.txt
+*.log

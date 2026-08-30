@@ -11,6 +11,10 @@ export const config = {
   vercelUrl: process.env.VERCEL_URL || "",
   vercelEnv: process.env.VERCEL_ENV || "development",
   dataDir: "./data",
+  telegramApiId: Number(process.env.TELEGRAM_API_ID || 0),
+  telegramApiHash: process.env.TELEGRAM_API_HASH || "",
+  telegramSession: process.env.TELEGRAM_SESSION || "",
+  monitorSecret: process.env.MONITOR_SECRET || "",
 } as const;
 
 export function isAdmin(userId: number | undefined): boolean {

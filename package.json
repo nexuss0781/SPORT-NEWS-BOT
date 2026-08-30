@@ -13,7 +13,8 @@
     "@types/dotenv": "^6.1.1",
     "@vitalets/google-translate-api": "^9.2.0",
     "dotenv": "^17.4.2",
-    "grammy": "^1.21.1"
+    "grammy": "^1.21.1",
+    "telegram": "^2.26.22"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

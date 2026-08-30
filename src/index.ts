@@ -7,10 +7,9 @@ import {
   getChannels,
   getConfig,
   isProcessed,
-  markAsProcessed,
   getProcessedPostByTargetMessage,
 } from "./services/storage";
-import { translateToAmharic } from "./services/translator";
+import { processAndPublish } from "./services/publisher";
 import { getMainMenu } from "./menus/index";
 
 export function createBot(): Bot {
@@ -155,10 +154,6 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
   // Check if already processed
   if (isProcessed(channelId, messageId)) return;
 
-  // Get config
-  const cfg = getConfig();
-  if (!cfg.targetChannel) return;
-
   // Extract text content
   let text = "";
   if ("text" in message && message.text) {
@@ -170,47 +165,7 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
   if (!text || text.trim().length === 0) return;
 
   try {
-    // Translate to Amharic (and get English if needed)
-    const { amharic, english, sourceLang } = await translateToAmharic(text);
-
-    // Format post
-    let postContent = "";
-
-    // If showEnglish is on, show English above Amharic
-    if (cfg.showEnglish && sourceLang !== "en") {
-      postContent += `🇬🇧 English:\n${english}\n\n`;
-    }
-
-    // If source is English and showOriginal is on, show original format
-    if (sourceLang === "en" && cfg.showOriginal) {
-      postContent += `📝 Original:\n${text}\n\n🇪🇹 Translation:\n${amharic}`;
-    } else {
-      postContent += `📢 ${amharic}`;
-    }
-
-    // Add signature
-    if (cfg.signature) {
-      postContent += `\n\n—\n${cfg.signature}`;
-    }
-
-    // Send to target channel
-    const targetChannel = cfg.targetChannel;
-    let sentMessage;
-    if (targetChannel) {
-      sentMessage = await ctx.api.sendMessage(targetChannel, postContent);
-    }
-
-    // Mark as processed with original and translated text
-    markAsProcessed({
-      channelId,
-      messageId,
-      targetMessageId: sentMessage?.message_id,
-      originalText: text,
-      translatedText: amharic,
-      englishText: english,
-      sourceLang,
-      processedAt: new Date().toISOString(),
-    });
+    await processAndPublish(ctx.api, channelId, messageId, text.trim());
   } catch (error) {
     console.error(`Error processing post from ${channelId}:`, error);
   }
