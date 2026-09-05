@@ -1,22 +1,14 @@
 import { InputFile } from "grammy";
 import { getConfig, getTargetChannels, markAsProcessed } from "./storage";
 import { translateToAmharic } from "./translator";
-import { BotConfig } from "../types";
+import { BotConfig, MediaPayload } from "../types";
+
+export { MediaPayload } from "../types";
 
 export interface TranslationResult {
   amharic: string;
   english: string;
   sourceLang: string;
-}
-
-export interface MediaPayload {
-  kind: "photo" | "video" | "animation" | "document" | "audio";
-  value: string | Buffer | Uint8Array | ArrayBuffer;
-  fileName?: string;
-  mimeType?: string;
-  duration?: number;
-  width?: number;
-  height?: number;
 }
 
 interface SendApi {
@@ -48,7 +40,7 @@ function buildPostContent(
   if (sourceLang === "en" && cfg.showOriginal) {
     content += `📝 Original:\n${originalText}\n\n🇪🇹 Translation:\n${amharic}`;
   } else {
-    content += `📢 ${amharic}`;
+    content += amharic;
   }
 
   if (cfg.signature) {
@@ -104,11 +96,12 @@ function defaultFileName(kind: MediaPayload["kind"], media: MediaPayload): strin
   }
 }
 
-async function sendMedia(
+export async function sendMedia(
   api: SendApi,
   target: string,
   media: MediaPayload,
-  caption: string
+  caption: string,
+  entities?: { type: string; offset: number; length: number; custom_emoji_id: string }[]
 ): Promise<any> {
   const fileName = defaultFileName(media.kind, media);
   const file =
@@ -117,6 +110,9 @@ async function sendMedia(
       : new InputFile(toBuffer(media.value), fileName);
 
   const opts: Record<string, any> = { caption: caption || undefined };
+  if (entities && entities.length > 0) {
+    opts.caption_entities = entities;
+  }
   if (media.kind === "document") {
     opts.filename = fileName;
   }

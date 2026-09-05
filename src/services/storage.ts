@@ -1,4 +1,4 @@
-import { BotConfig, Channel, ProcessedPost } from "../types";
+import { BotConfig, Channel, ProcessedPost, ReelItem } from "../types";
 import { dbGet, dbSet } from "./db";
 export { ProcessedPost } from "../types";
 
@@ -6,6 +6,7 @@ const KEY_CONFIG = "config";
 const KEY_CHANNELS = "channels";
 const KEY_PROCESSED = "processed";
 const KEY_PENDING = "pending";
+const KEY_REELS = "reels";
 
 // Bot Config
 const DEFAULT_SIGNATURE = "SHARE ⬅️\n🤳@Ethio_Utd ✅";
@@ -131,6 +132,7 @@ export async function getProcessedPostByTargetMessage(
 interface PendingInput {
   state: string;
   at: string;
+  data?: string;
 }
 
 export async function getPendingInput(userId: number): Promise<string | undefined> {
@@ -144,9 +146,20 @@ export async function getPendingInput(userId: number): Promise<string | undefine
   return entry.state;
 }
 
-export async function setPendingInput(userId: number, state: string): Promise<void> {
+export async function getPendingFull(userId: number): Promise<{ state: string; data?: string } | undefined> {
   const all = (await dbGet<Record<string, PendingInput>>(KEY_PENDING)) || {};
-  all[String(userId)] = { state, at: new Date().toISOString() };
+  const entry = all[String(userId)];
+  if (!entry) return undefined;
+  if (Date.now() - new Date(entry.at).getTime() > 10 * 60 * 1000) {
+    await clearPendingInput(userId);
+    return undefined;
+  }
+  return { state: entry.state, data: entry.data };
+}
+
+export async function setPendingInput(userId: number, state: string, data?: string): Promise<void> {
+  const all = (await dbGet<Record<string, PendingInput>>(KEY_PENDING)) || {};
+  all[String(userId)] = { state, at: new Date().toISOString(), data };
   await dbSet(KEY_PENDING, all);
 }
 
@@ -154,4 +167,49 @@ export async function clearPendingInput(userId: number): Promise<void> {
   const all = (await dbGet<Record<string, PendingInput>>(KEY_PENDING)) || {};
   delete all[String(userId)];
   await dbSet(KEY_PENDING, all);
+}
+
+// Reels (manual review queue)
+export async function getReels(): Promise<ReelItem[]> {
+  return (await dbGet<ReelItem[]>(KEY_REELS)) || [];
+}
+
+export async function getQueuedReels(): Promise<ReelItem[]> {
+  const all = await getReels();
+  return all
+    .filter((r) => r.status === "queued")
+    .sort(
+      (a, b) =>
+        new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime()
+    );
+}
+
+export async function getReelById(id: string): Promise<ReelItem | undefined> {
+  const all = await getReels();
+  return all.find((r) => r.id === id);
+}
+
+export async function addReel(item: ReelItem): Promise<boolean> {
+  const all = await getReels();
+  const exists = all.some(
+    (r) =>
+      r.channelId.toLowerCase() === item.channelId.toLowerCase() &&
+      r.sourceMessageId === item.sourceMessageId
+  );
+  if (exists) return false;
+  all.push(item);
+  const trimmed = all.slice(-500);
+  await dbSet(KEY_REELS, trimmed);
+  return true;
+}
+
+export async function updateReel(
+  id: string,
+  updates: Partial<ReelItem>
+): Promise<void> {
+  const all = await getReels();
+  const idx = all.findIndex((r) => r.id === id);
+  if (idx === -1) return;
+  all[idx] = { ...all[idx], ...updates };
+  await dbSet(KEY_REELS, all);
 }

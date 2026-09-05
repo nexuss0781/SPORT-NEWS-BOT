@@ -12,6 +12,41 @@ export interface BotConfig {
   translatedLang: string;
   showEnglish: boolean;
   showOriginal: boolean;
+  reelsMode?: boolean;
+}
+
+export interface CustomEmoji {
+  emojiChar: string;
+  emojiId: string;
+}
+
+export interface ReelItem {
+  id: string;
+  channelId: string;
+  sourceMessageId: number;
+  sourceLink: string;
+  originalText: string;
+  translatedText: string;
+  englishText?: string;
+  sourceLang: string;
+  mode: "translated" | "original";
+  sourceMedia: boolean;
+  customEmoji: CustomEmoji[];
+  addedMedia: MediaPayload[];
+  status: "queued" | "posted" | "skipped";
+  queuedAt: string;
+  targetMessageIds?: Record<string, number>;
+  targetMessageId?: number;
+}
+
+export interface MediaPayload {
+  kind: "photo" | "video" | "animation" | "document" | "audio";
+  value: string | Buffer | Uint8Array | ArrayBuffer;
+  fileName?: string;
+  mimeType?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
 }
 
 export interface ProcessedPost {

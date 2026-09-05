@@ -119,6 +119,36 @@ function toMessage(m: any): MonitorMessage | undefined {
   };
 }
 
+export async function fetchRawMessage(
+  client: TelegramClient,
+  username: string,
+  messageId: number
+): Promise<any | undefined> {
+  const cleanName = username.replace(/^@/, "").trim();
+  if (!cleanName) return undefined;
+
+  let peer;
+  try {
+    peer = await client.getInputEntity(cleanName);
+  } catch {
+    return undefined;
+  }
+
+  try {
+    const res: any = await client.invoke(
+      new Api.messages.GetMessages({
+        id: [new Api.InputMessageID({ id: messageId })],
+      })
+    );
+    const msg = res?.messages?.find(
+      (m: any) => m.id === messageId && m.className === "Message"
+    );
+    return msg;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function fetchRecentMessages(
   client: TelegramClient,
   username: string,

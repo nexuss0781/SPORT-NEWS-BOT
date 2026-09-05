@@ -9,7 +9,8 @@ import {
   isProcessed,
   getProcessedPostByTargetMessage,
 } from "./services/storage";
-import { processAndPublish, MediaPayload } from "./services/publisher";
+import { processAndPublish } from "./services/publisher";
+import { enqueueReel, extractMediaPayloadFromMessage } from "./services/reels";
 import { cleanContent } from "./services/cleaner";
 import { getMainMenu } from "./menus/index";
 
@@ -112,7 +113,7 @@ async function handleOriginalCommand(ctx: Context, mode: "english" | "original")
         "🇬🇧 English:",
         post.englishText || post.originalText,
         "",
-        "📢 Amharic:",
+        "Amharic:",
         post.translatedText,
       ].join("\n") + sig;
     }
@@ -177,59 +178,26 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
     cleaned = cleanContent(text.trim());
   }
 
-  const media = extractMedia(message);
+  const media = extractMediaPayloadFromMessage(message);
   if (!cleaned && !media) return;
 
   try {
+    const cfg = await getConfig();
+    if (cfg.reelsMode) {
+      const entities = message.entities || message.caption_entities;
+      await enqueueReel({
+        channelId,
+        messageId,
+        text: cleaned,
+        hasMedia: !!media,
+        entities,
+      });
+      return;
+    }
     await processAndPublish(ctx.api, channelId, messageId, cleaned, media);
   } catch (error) {
     console.error(`Error processing post from ${channelId}:`, error);
   }
 }
 
-function extractMedia(message: any): MediaPayload | undefined {
-  if (message?.photo && message.photo.length) {
-    const best = message.photo[message.photo.length - 1];
-    return { kind: "photo", value: best.file_id, width: best.width, height: best.height };
-  }
-  if (message?.video) {
-    return {
-      kind: "video",
-      value: message.video.file_id,
-      fileName: message.video.file_name,
-      mimeType: message.video.mime_type,
-      duration: message.video.duration,
-      width: message.video.width,
-      height: message.video.height,
-    };
-  }
-  if (message?.animation) {
-    return {
-      kind: "animation",
-      value: message.animation.file_id,
-      fileName: message.animation.file_name,
-      mimeType: message.animation.mime_type,
-      duration: message.animation.duration,
-      width: message.animation.width,
-      height: message.animation.height,
-    };
-  }
-  if (message?.audio) {
-    return {
-      kind: "audio",
-      value: message.audio.file_id,
-      fileName: message.audio.file_name,
-      mimeType: message.audio.mime_type,
-      duration: message.audio.duration,
-    };
-  }
-  if (message?.document) {
-    return {
-      kind: "document",
-      value: message.document.file_id,
-      fileName: message.document.file_name,
-      mimeType: message.document.mime_type,
-    };
-  }
-  return undefined;
-}
+// Media extraction lives in src/services/reels.ts (extractMediaPayloadFromMessage).

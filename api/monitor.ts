@@ -3,6 +3,7 @@ import { config } from "../src/config";
 import {
   getChannels,
   getTargetChannels,
+  getConfig,
   isProcessed,
 } from "../src/services/storage";
 import {
@@ -11,6 +12,7 @@ import {
   downloadMedia,
 } from "../src/services/mtproto";
 import { processAndPublish } from "../src/services/publisher";
+import { enqueueReel } from "../src/services/reels";
 import { cleanContent } from "../src/services/cleaner";
 
 // Light-weight bot instance just for posting to the target channel
@@ -48,6 +50,8 @@ export default async function handler(req: any, res: any) {
     client = createMonitorClient();
     await client.connect();
 
+    const cfg = await getConfig();
+    const reelsMode = !!cfg.reelsMode;
     const now = Math.floor(Date.now() / 1000);
 
     for (const ch of channels) {
@@ -61,8 +65,18 @@ export default async function handler(req: any, res: any) {
         if (!cleaned && !msg.hasMedia) continue;
 
         try {
-          const media = msg.hasMedia ? await downloadMedia(client, msg.raw) : null;
-          await processAndPublish(bot.api as any, ch.username, msg.messageId, cleaned, media);
+          if (reelsMode) {
+            await enqueueReel({
+              channelId: ch.username,
+              messageId: msg.messageId,
+              text: cleaned,
+              hasMedia: msg.hasMedia,
+              entities: msg.raw?.entities,
+            });
+          } else {
+            const media = msg.hasMedia ? await downloadMedia(client, msg.raw) : null;
+            await processAndPublish(bot.api as any, ch.username, msg.messageId, cleaned, media);
+          }
           results.push({ channel: ch.username, messageId: msg.messageId, ok: true });
         } catch (error: any) {
           results.push({

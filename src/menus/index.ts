@@ -14,9 +14,11 @@ export function getMainMenu(): { text: string; keyboard: InlineKeyboard } {
 
   const keyboard = new InlineKeyboard()
     .text("📺 Channels", "menu:channels")
-    .text("⚙️ Settings", "menu:settings")
+    .text("🎞 Reels", "menu:reels")
     .row()
+    .text("⚙️ Settings", "menu:settings")
     .text("📊 Status", "menu:status")
+    .row()
     .text("❓ Help", "menu:help");
 
   return { text, keyboard };
@@ -53,7 +55,7 @@ export function getChannelsMenu(): { text: string; keyboard: InlineKeyboard } {
 }
 
 // Settings Menu
-export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, signature: string): { text: string; keyboard: InlineKeyboard } {
+export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, signature: string, reelsMode = false): { text: string; keyboard: InlineKeyboard } {
   const text = [
     "╔══════════════════════════╗",
     "║   ⚙️ BOT SETTINGS        ║",
@@ -63,6 +65,7 @@ export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, sig
     "",
     `🇬🇧 English Display:  ${showEnglish ? "✅ ON" : "❌ OFF"}`,
     `📝 Original Display: ${showOriginal ? "✅ ON" : "❌ OFF"}`,
+    `🎞 Reels Mode:       ${reelsMode ? "✅ ON (manual queue)" : "❌ OFF (auto-post)"}`,
     "",
     "Settings:",
   ].join("\n");
@@ -73,11 +76,16 @@ export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, sig
   const originalBtn = showOriginal
     ? "📝 Original: ✅ ON"
     : "📝 Original: ❌ OFF";
+  const reelsBtn = reelsMode
+    ? "🎞 Reels: ✅ ON"
+    : "🎞 Reels: ❌ OFF";
 
   const keyboard = new InlineKeyboard()
     .text(englishBtn, "setting:toggle:english")
     .row()
     .text(originalBtn, "setting:toggle:original")
+    .row()
+    .text(reelsBtn, "setting:toggle:reels")
     .row()
     .text("✍️ Change Signature", "setting:signature")
     .text("🌐 Set Language", "setting:language")
@@ -94,6 +102,8 @@ export function getStatusMenu(data: {
   signature: string;
   showEnglish: boolean;
   showOriginal: boolean;
+  reelsEnabled: boolean;
+  reelsQueued: number;
 }): { text: string; keyboard: InlineKeyboard } {
   const targets = data.target.length > 0 ? data.target.join(", ") : "Not set";
   const text = [
@@ -106,6 +116,7 @@ export function getStatusMenu(data: {
     `✍️ Signature: ${data.signature || "Not set"}`,
     `🇬🇧 English: ${data.showEnglish ? "ON" : "OFF"}`,
     `📝 Original: ${data.showOriginal ? "ON" : "OFF"}`,
+    `🎞 Reels: ${data.reelsEnabled ? "ON (manual)" : "OFF (auto)"} • Queue: ${data.reelsQueued}`,
   ].join("\n");
 
   const keyboard = new InlineKeyboard()
