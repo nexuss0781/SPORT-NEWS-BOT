@@ -152,9 +152,14 @@ export async function fetchRawMessage(
   }
 
   try {
+    // GetHistory(offsetId) returns messages with id <= offsetId, newest first,
+    // so the exact message is the first entry. (messages.getMessages without a
+    // peer fails for channels, which broke the media preview pipeline.)
     const res: any = await client.invoke(
-      new Api.messages.GetMessages({
-        id: [new Api.InputMessageID({ id: messageId })],
+      new Api.messages.GetHistory({
+        peer,
+        offsetId: messageId + 1,
+        limit: 1,
       })
     );
     const msg = res?.messages?.find(
