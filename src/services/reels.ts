@@ -36,7 +36,7 @@ export async function ensureReelMeta(reel: ReelItem): Promise<void> {
       updates.id = `${realUsername}:${reel.sourceMessageId}`;
     }
     await updateReel(reel.id, updates);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[reels] metadata repair failed:", error?.message || error);
   } finally {
     try {
