@@ -9,6 +9,7 @@ import {
 import {
   createMonitorClient,
   fetchRecentMessages,
+  resolveChannelMeta,
   downloadMedia,
 } from "../src/services/mtproto";
 import { processAndPublish } from "../src/services/publisher";
@@ -66,12 +67,16 @@ export default async function handler(req: any, res: any) {
 
         try {
           if (reelsMode) {
+            // Check the post's own metadata first: who the channel is + official link
+            const meta = await resolveChannelMeta(client, msg.raw, msg.messageId);
             await enqueueReel({
               channelId: ch.username,
               messageId: msg.messageId,
               text: cleaned,
               hasMedia: msg.hasMedia,
               entities: msg.raw?.entities,
+              sourceLink: meta.sourceLink,
+              channelTitle: meta.channelTitle,
             });
           } else {
             const media = msg.hasMedia ? await downloadMedia(client, msg.raw) : null;

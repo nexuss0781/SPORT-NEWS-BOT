@@ -14,6 +14,13 @@ export interface MonitorMessage {
 
 const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
 
+export function normalizeUsername(input: string): string {
+  let u = (input || "").replace(/^@/, "").trim();
+  u = u.replace(/^https?:\/\/(?:t\.me|telegram\.me)\//i, "");
+  u = u.split(/[/?#]/)[0];
+  return u;
+}
+
 export function createMonitorClient(): TelegramClient {
   if (!config.telegramApiId || !config.telegramApiHash || !config.telegramSession) {
     throw new Error(
@@ -124,7 +131,7 @@ export async function fetchRawMessage(
   username: string,
   messageId: number
 ): Promise<any | undefined> {
-  const cleanName = username.replace(/^@/, "").trim();
+  const cleanName = normalizeUsername(username);
   if (!cleanName) return undefined;
 
   let peer;
@@ -149,12 +156,84 @@ export async function fetchRawMessage(
   }
 }
 
+export async function fetchMessageLink(
+  client: TelegramClient,
+  username: string,
+  messageId: number
+): Promise<string | undefined> {
+  const cleanName = normalizeUsername(username);
+  if (!cleanName) return undefined;
+
+  let channel;
+  try {
+    channel = await client.getInputEntity(cleanName);
+  } catch {
+    return undefined;
+  }
+
+  try {
+    const res: any = await client.invoke(
+      new Api.channels.ExportMessageLink({
+        channel,
+        id: messageId,
+      })
+    );
+    return res?.link || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export interface SourceMeta {
+  channelTitle?: string;
+  channelUsername?: string;
+  sourceLink?: string;
+}
+
+// Resolve channel identity + official post link from the message's own metadata
+// (the peer it was posted in), not from any stored channel string.
+export async function resolveChannelMeta(
+  client: TelegramClient,
+  rawMsg: any,
+  messageId: number
+): Promise<SourceMeta> {
+  const out: SourceMeta = {};
+  const peer = rawMsg?.peerId;
+  if (!peer) return out;
+
+  let entity: any;
+  try {
+    entity = await client.getEntity(peer);
+  } catch {
+    return out;
+  }
+
+  out.channelTitle = entity?.title || entity?.username;
+  out.channelUsername = entity?.username;
+
+  if (entity) {
+    try {
+      const res: any = await client.invoke(
+        new Api.channels.ExportMessageLink({
+          channel: entity,
+          id: messageId,
+        })
+      );
+      out.sourceLink = res?.link || undefined;
+    } catch {
+      // private/restricted channel: no public link
+    }
+  }
+
+  return out;
+}
+
 export async function fetchRecentMessages(
   client: TelegramClient,
   username: string,
   limit = 10
 ): Promise<MonitorMessage[]> {
-  const cleanName = username.replace(/^@/, "").trim();
+  const cleanName = normalizeUsername(username);
   if (!cleanName) return [];
 
   let peer;

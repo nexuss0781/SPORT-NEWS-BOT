@@ -1,9 +1,49 @@
 import { Bot } from "grammy";
-import { addReel, getConfig, getTargetChannels } from "./storage";
+import { addReel, getConfig, getTargetChannels, updateReel } from "./storage";
 import { translateToAmharic } from "./translator";
-import { createMonitorClient, downloadMedia, fetchRawMessage } from "./mtproto";
+import {
+  createMonitorClient,
+  downloadMedia,
+  fetchRawMessage,
+  resolveChannelMeta,
+} from "./mtproto";
 import { sendMedia } from "./publisher";
 import { BotConfig, CustomEmoji, MediaPayload, ReelItem } from "../types";
+
+// Check the post's own metadata and repair missing/broken channel + source link
+// data on queued items before they are shown.
+export async function ensureReelMeta(reel: ReelItem): Promise<void> {
+  const hasValidLink = !!reel.sourceLink && reel.sourceLink.startsWith("http");
+  const hasValidChannel = !!reel.channelTitle && !reel.channelId.includes("/");
+  if (hasValidLink && hasValidChannel) return;
+
+  const client = createMonitorClient();
+  try {
+    await client.connect();
+    const raw = await fetchRawMessage(client, reel.channelId, reel.sourceMessageId);
+    if (!raw) return;
+    const meta = await resolveChannelMeta(client, raw, reel.sourceMessageId);
+    const realUsername =
+      meta.channelUsername && !meta.channelUsername.startsWith("http")
+        ? `@${meta.channelUsername}`
+        : reel.channelId;
+    const updates: Partial<ReelItem> = {
+      channelTitle: meta.channelTitle || reel.channelTitle,
+      sourceLink: meta.sourceLink || reel.sourceLink,
+      channelId: realUsername,
+    };
+    if (realUsername !== reel.channelId) {
+      updates.id = `${realUsername}:${reel.sourceMessageId}`;
+    }
+    await updateReel(reel.id, updates);
+  } catch (error) {
+    console.error("[reels] metadata repair failed:", error?.message || error);
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {}
+  }
+}
 
 export function encodeReelId(id: string): string {
   return Buffer.from(id, "utf8").toString("base64url");
@@ -106,6 +146,8 @@ export interface ReelSourceInput {
   text: string;
   hasMedia: boolean;
   entities?: any[];
+  sourceLink?: string;
+  channelTitle?: string;
 }
 
 export async function enqueueReel(input: ReelSourceInput): Promise<boolean> {
@@ -121,12 +163,12 @@ export async function enqueueReel(input: ReelSourceInput): Promise<boolean> {
     }
   }
 
-  const username = input.channelId.replace(/^@/, "");
   const item: ReelItem = {
     id: `${input.channelId}:${input.messageId}`,
     channelId: input.channelId,
+    channelTitle: input.channelTitle,
     sourceMessageId: input.messageId,
-    sourceLink: `https://t.me/${username}/${input.messageId}`,
+    sourceLink: input.sourceLink,
     originalText: ori,
     translatedText: translation.amharic,
     englishText: translation.english,

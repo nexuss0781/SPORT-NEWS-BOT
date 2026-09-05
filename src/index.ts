@@ -185,12 +185,18 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
     const cfg = await getConfig();
     if (cfg.reelsMode) {
       const entities = message.entities || message.caption_entities;
+      const sourceLink =
+        chat.username
+          ? `https://t.me/${chat.username}/${messageId}`
+          : undefined;
       await enqueueReel({
         channelId,
         messageId,
         text: cleaned,
         hasMedia: !!media,
         entities,
+        sourceLink,
+        channelTitle: chat.title || chat.username,
       });
       return;
     }

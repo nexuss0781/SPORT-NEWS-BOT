@@ -23,8 +23,9 @@ export interface CustomEmoji {
 export interface ReelItem {
   id: string;
   channelId: string;
+  channelTitle?: string;
   sourceMessageId: number;
-  sourceLink: string;
+  sourceLink?: string;
   originalText: string;
   translatedText: string;
   englishText?: string;

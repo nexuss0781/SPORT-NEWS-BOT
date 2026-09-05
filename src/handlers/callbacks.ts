@@ -35,6 +35,7 @@ import {
   patchText,
   extractMediaPayloadFromMessage,
   publishReelItem,
+  ensureReelMeta,
 } from "../services/reels";
 import { isAdmin } from "../config";
 import { ReelItem } from "../types";
@@ -87,7 +88,9 @@ function buildReelKeyboard(reel: ReelItem): { text: string; keyboard: InlineKeyb
       ? "📎 has media"
       : "";
 
-  const lines = [`🎞 ${reel.channelId}${mediaMark ? ` • ${mediaMark}` : ""}`];
+  const lines = [
+    `🎞 ${reel.channelTitle || reel.channelId}${mediaMark ? ` • ${mediaMark}` : ""}`,
+  ];
 
   if (reel.mode === "original") {
     lines.push(
@@ -109,13 +112,18 @@ function buildReelKeyboard(reel: ReelItem): { text: string; keyboard: InlineKeyb
     .text(
       reel.mode === "translated" ? "🔁 Use Original" : "🌐 Use Translation",
       `reel:toggle:${enc}`
-    )
-    .text("🖼 Add Media", `reel:addmedia:${enc}`)
+    );
+  if (reel.sourceLink && reel.sourceLink.startsWith("http")) {
+    keyboard.url("🔗 Original Post", reel.sourceLink);
+  } else {
+    keyboard.text("🔗 Original Post", "reel:na");
+  }
+  keyboard
     .row()
-    .text("📤 Post", `reel:post:${enc}`)
+    .text("🖼 Add Media", `reel:addmedia:${enc}`)
     .text("⏭ Skip", `reel:skip:${enc}`)
     .row()
-    .url("🔗 Original Post", reel.sourceLink)
+    .text("📤 Post", `reel:post:${enc}`)
     .text("◀️ Menu", "menu:main");
 
   return { text: lines.join("\n"), keyboard };
@@ -134,7 +142,9 @@ async function showQueue(ctx: Context): Promise<void> {
   }
   const count = queued.length;
   const reel = queued[0];
-  const { text, keyboard } = buildReelKeyboard(reel);
+  await ensureReelMeta(reel);
+  const fixed = (await getQueuedReels()).find((r) => r.id === reel.id) || reel;
+  const { text, keyboard } = buildReelKeyboard(fixed);
   await safeReply(
     ctx,
     `Queue: ${count} post${count > 1 ? "s" : ""} • showing 1\n\n${text}`,
@@ -150,7 +160,9 @@ async function renderReelById(ctx: Context, id: string): Promise<void> {
     return;
   }
   const count = queued.length;
-  const { text, keyboard } = buildReelKeyboard(queued[idx]);
+  await ensureReelMeta(queued[idx]);
+  const fixed = (await getQueuedReels()).find((r) => r.id === id) || queued[idx];
+  const { text, keyboard } = buildReelKeyboard(fixed);
   await safeReply(
     ctx,
     `Queue: ${count} post${count > 1 ? "s" : ""} • showing ${idx + 1}\n\n${text}`,
@@ -239,6 +251,12 @@ export function registerCallbacks(bot: any): void {
       return;
     }
     await showQueue(ctx);
+  });
+
+  bot.callbackQuery("reel:na", async (ctx: Context) => {
+    await ctx
+      .answerCallbackQuery("🔗 This channel has no public link (private channel).")
+      .catch(() => {});
   });
 
   bot.callbackQuery(/^reel:post:(.+)$/, async (ctx: Context) => {
