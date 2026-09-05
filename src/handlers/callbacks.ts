@@ -97,14 +97,11 @@ function buildReelText(
   reel: ReelItem,
   limits: { translated: number; original: number } = { translated: 1600, original: 900 }
 ): string {
-  const lines = [`🎞 ${reel.channelTitle || reel.channelId}`];
-
   const body =
     reel.mode === "original"
       ? truncate(reel.originalText, limits.original) || "(none)"
       : truncate(reel.translatedText, limits.translated) || "(none)";
-  lines.push("", body);
-  return lines.join("\n");
+  return body;
 }
 
 function buildReelKeyboard(
@@ -171,7 +168,7 @@ async function sendReelCard(
   const media = await pickPreviewMedia(reel);
   const hasPreview = !!media && media.kind !== "document";
   const { text, keyboard } = buildReelKeyboard(reel, hasPreview);
-  const caption = `${header}\n\n${text}`;
+  const caption = `${header ? `${header}\n\n` : ""}${text}`;
   const userId = ctx.from?.id;
 
   if (hasPreview && media) {
@@ -226,7 +223,7 @@ async function showQueue(ctx: Context): Promise<void> {
   const reel = queued[0];
   await ensureReelMeta(reel);
   const fixed = (await getQueuedReels()).find((r) => r.id === reel.id) || reel;
-  await sendReelCard(ctx, fixed, `Queue: ${count} post${count > 1 ? "s" : ""} • showing 1`);
+  await sendReelCard(ctx, fixed, "");
 }
 
 async function renderReelById(ctx: Context, id: string): Promise<void> {
@@ -239,7 +236,7 @@ async function renderReelById(ctx: Context, id: string): Promise<void> {
   const count = queued.length;
   await ensureReelMeta(queued[idx]);
   const fixed = (await getQueuedReels()).find((r) => r.id === id) || queued[idx];
-  await sendReelCard(ctx, fixed, `Queue: ${count} post${count > 1 ? "s" : ""} • showing ${idx + 1}`);
+  await sendReelCard(ctx, fixed, "");
 }
 
 export function registerCallbacks(bot: any): void {
