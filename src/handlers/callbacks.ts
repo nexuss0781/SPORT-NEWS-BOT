@@ -87,7 +87,7 @@ export function registerCallbacks(bot: any): void {
       return;
     }
     const cfg = await getConfig();
-    const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal);
+    const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal, cfg.signature);
     await safeReply(ctx, text, keyboard);
   });
 
@@ -222,7 +222,7 @@ export function registerCallbacks(bot: any): void {
     const cfg = await getConfig();
     await updateConfig({ showEnglish: !cfg.showEnglish });
     const updated = await getConfig();
-    const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal);
+    const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal, updated.signature);
     await safeReply(ctx, text, keyboard);
   });
 
@@ -235,7 +235,7 @@ export function registerCallbacks(bot: any): void {
     const cfg = await getConfig();
     await updateConfig({ showOriginal: !cfg.showOriginal });
     const updated = await getConfig();
-    const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal);
+    const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal, updated.signature);
     await safeReply(ctx, text, keyboard);
   });
 
@@ -245,7 +245,8 @@ export function registerCallbacks(bot: any): void {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const { text, keyboard } = getSetSignaturePrompt();
+    const cfg = await getConfig();
+    const { text, keyboard } = getSetSignaturePrompt(cfg.signature);
     await safeReply(ctx, text, keyboard);
     await setPendingInput(ctx.from!.id, "setsignature");
   });
@@ -269,7 +270,7 @@ export function registerCallbacks(bot: any): void {
     const lang = ctx.callbackQuery?.data?.split(":")[2] || "am";
     await updateConfig({ translatedLang: lang });
     const cfg = await getConfig();
-    const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal);
+    const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal, cfg.signature);
     const langNames: Record<string, string> = {
       am: "Amharic", ar: "Arabic", fr: "French",
       es: "Spanish", de: "German", pt: "Portuguese",
@@ -351,8 +352,8 @@ export function registerCallbacks(bot: any): void {
         await updateConfig({ signature: text });
         await clearPendingInput(userId);
         const cfg = await getConfig();
-        const { text: menuText, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal);
-        await ctx.reply(`✅ Signature set.\n\n${menuText}`, { reply_markup: keyboard });
+        const { text: menuText, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal, cfg.signature);
+        await ctx.reply(`✅ Signature updated.\n\n${menuText}`, { reply_markup: keyboard });
         break;
       }
     }

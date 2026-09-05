@@ -8,10 +8,12 @@ const KEY_PROCESSED = "processed";
 const KEY_PENDING = "pending";
 
 // Bot Config
+const DEFAULT_SIGNATURE = "SHARE ⬅️\n🤳@Ethio_Utd ✅";
+
 const DEFAULT_CONFIG: BotConfig = {
   targetChannel: null,
   targetChannels: [],
-  signature: "",
+  signature: DEFAULT_SIGNATURE,
   translatedLang: "am",
   showEnglish: false,
   showOriginal: false,
@@ -19,6 +21,12 @@ const DEFAULT_CONFIG: BotConfig = {
 
 export async function getConfig(): Promise<BotConfig> {
   const cfg = (await dbGet<BotConfig>(KEY_CONFIG)) || DEFAULT_CONFIG;
+  // Backfill default signature for existing configs
+  if (!cfg.signature) {
+    const migrated = { ...cfg, signature: DEFAULT_SIGNATURE };
+    await dbSet(KEY_CONFIG, migrated);
+    return migrated;
+  }
   // Migrate legacy single targetChannel into targetChannels
   if (cfg.targetChannel && (!cfg.targetChannels || cfg.targetChannels.length === 0)) {
     const migrated = { ...cfg, targetChannels: [cfg.targetChannel] };

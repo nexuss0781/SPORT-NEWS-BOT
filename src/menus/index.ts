@@ -53,16 +53,18 @@ export function getChannelsMenu(): { text: string; keyboard: InlineKeyboard } {
 }
 
 // Settings Menu
-export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean): { text: string; keyboard: InlineKeyboard } {
+export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, signature: string): { text: string; keyboard: InlineKeyboard } {
   const text = [
     "╔══════════════════════════╗",
     "║   ⚙️ BOT SETTINGS        ║",
     "╚══════════════════════════╝",
     "",
+    `${signature ? `✍️ Signature:\n${signature}` : "✍️ Signature: Not set"}`,
+    "",
     `🇬🇧 English Display:  ${showEnglish ? "✅ ON" : "❌ OFF"}`,
     `📝 Original Display: ${showOriginal ? "✅ ON" : "❌ OFF"}`,
     "",
-    "Toggle settings ON/OFF:",
+    "Settings:",
   ].join("\n");
 
   const englishBtn = showEnglish
@@ -77,7 +79,7 @@ export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean): { 
     .row()
     .text(originalBtn, "setting:toggle:original")
     .row()
-    .text("✍️ Set Signature", "setting:signature")
+    .text("✍️ Change Signature", "setting:signature")
     .text("🌐 Set Language", "setting:language")
     .row()
     .text("◀️ Back", "menu:main");
@@ -225,15 +227,19 @@ export function getSetTargetPrompt(): { text: string; keyboard: InlineKeyboard }
 }
 
 // Set Signature Prompt
-export function getSetSignaturePrompt(): { text: string; keyboard: InlineKeyboard } {
+export function getSetSignaturePrompt(currentSignature: string): { text: string; keyboard: InlineKeyboard } {
   const text = [
     "╔══════════════════════════╗",
-    "║   ✍️ SET SIGNATURE         ║",
+    "║   ✍️ CHANGE SIGNATURE    ║",
     "╚══════════════════════════╝",
     "",
-    "Send the signature text:",
+    `Current signature:\n${currentSignature || "None"}`,
     "",
-    "Example: Share @your_channel",
+    "Send the NEW signature text.",
+    "It replaces the current one:",
+    "",
+    "Example: SHARE ⬅️",
+    "🤳@Ethio_Utd ✅",
     "",
     "Or send /cancel to go back.",
   ].join("\n");
