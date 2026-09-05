@@ -67,22 +67,63 @@ function toBuffer(value: Buffer | Uint8Array | ArrayBuffer): Buffer {
   throw new Error("Unsupported media value");
 }
 
+function mimeExt(mime?: string): string | undefined {
+  if (!mime) return undefined;
+  const map: Record<string, string> = {
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/x-msvideo": "avi",
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "audio/ogg": "ogg",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "m4a",
+    "audio/x-wav": "wav",
+    "application/pdf": "pdf",
+  };
+  return map[mime] || mime.split("/")[1]?.split(";")[0]?.replace(/\s/g, "").slice(0, 8);
+}
+
+function defaultFileName(kind: MediaPayload["kind"], media: MediaPayload): string {
+  if (media.fileName) return media.fileName;
+  const ext = mimeExt(media.mimeType);
+  switch (kind) {
+    case "photo":
+      return `photo.${ext || "jpg"}`;
+    case "video":
+      return `video.${ext || "mp4"}`;
+    case "animation":
+      return `animation.${ext || "mp4"}`;
+    case "audio":
+      return `audio.${ext || "ogg"}`;
+    case "document":
+    default:
+      return ext ? `file.${ext}` : "file";
+  }
+}
+
 async function sendMedia(
   api: SendApi,
   target: string,
   media: MediaPayload,
   caption: string
 ): Promise<any> {
+  const fileName = defaultFileName(media.kind, media);
   const file =
     typeof media.value === "string"
       ? media.value
-      : new InputFile(toBuffer(media.value), media.fileName || "media.bin");
+      : new InputFile(toBuffer(media.value), fileName);
 
   const opts: Record<string, any> = { caption: caption || undefined };
-  if (media.fileName && (media.kind === "document" || media.kind === "animation")) {
-    opts.filename = media.fileName;
+  if (media.kind === "document") {
+    opts.filename = fileName;
   }
-  if (media.mimeType) opts.content_type = media.mimeType;
+  if (media.kind === "video") {
+    opts.supports_streaming = true;
+  }
+  if (media.mimeType && media.fileName) opts.content_type = media.mimeType;
   if (media.duration) opts.duration = media.duration;
   if (media.width) opts.width = media.width;
   if (media.height) opts.height = media.height;

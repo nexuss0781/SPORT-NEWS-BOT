@@ -1,6 +1,10 @@
 import { Bot } from "grammy";
 import { config } from "../src/config";
-import { getChannels, getTargetChannels, isProcessed } from "../src/services/storage";
+import {
+  getChannels,
+  getTargetChannels,
+  isProcessed,
+} from "../src/services/storage";
 import {
   createMonitorClient,
   fetchRecentMessages,
@@ -57,11 +61,7 @@ export default async function handler(req: any, res: any) {
         if (!cleaned && !msg.hasMedia) continue;
 
         try {
-          let media: any;
-          if (msg.hasMedia && msg.raw) {
-            media = await downloadMedia(client, msg.raw);
-          }
-          if (!cleaned && !media) continue;
+          const media = msg.hasMedia ? await downloadMedia(client, msg.raw) : null;
           await processAndPublish(bot.api as any, ch.username, msg.messageId, cleaned, media);
           results.push({ channel: ch.username, messageId: msg.messageId, ok: true });
         } catch (error: any) {

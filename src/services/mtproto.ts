@@ -12,7 +12,7 @@ export interface MonitorMessage {
   raw?: any;
 }
 
-const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
+const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
 
 export function createMonitorClient(): TelegramClient {
   if (!config.telegramApiId || !config.telegramApiHash || !config.telegramSession) {
