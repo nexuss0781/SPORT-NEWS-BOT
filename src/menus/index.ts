@@ -171,7 +171,7 @@ export function getReelsHomeMenu(stats: {
     "pre-translated and ready",
     "to review.",
     "",
-    "• Edit ✏️ or Patch 🩹 the text",
+    "• Edit ✏️ the text",
     "• Toggle Original vs Translation",
     "• Attach Media 🖼",
     "• Then Post 📤 or Skip ⏭",

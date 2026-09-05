@@ -115,7 +115,7 @@ function buildReelKeyboard(
 
   const keyboard = new InlineKeyboard()
     .text("✏️ Rewrite", `reel:rewrite:${enc}`)
-    .text("🩹 Patch", `reel:patch:${enc}`)
+    .text("🩹 Edit", `reel:patch:${enc}`)
     .row()
     .text(
       reel.mode === "translated" ? "🔁 Use Original" : "🌐 Use Translation",
@@ -128,8 +128,8 @@ function buildReelKeyboard(
   }
   keyboard
     .row()
-    .text("📤 Post", `reel:post:${enc}`)
     .text("🖼 Add Media", `reel:addmedia:${enc}`)
+    .text("📤 Post", `reel:post:${enc}`)
     .row()
     .text("◀️ Menu", "menu:main")
     .text("⏭ Skip", `reel:skip:${enc}`);
@@ -409,9 +409,9 @@ export function registerCallbacks(bot: any): void {
       return;
     }
     const enc = ctx.callbackQuery?.data?.split(":")[2] || "";
-    await setPendingInput(ctx.from!.id, `reel_patch_old:${enc}`);
+    await setPendingInput(ctx.from!.id, `reel_patch:${enc}`);
     await ctx.answerCallbackQuery().catch(() => {});
-    await ctx.reply("🩹 Send the OLD text (exact phrase or line) to find in the post. (/cancel to abort)");
+    await ctx.reply("✏️ Send the change as:\nOLD text => NEW text\n(/cancel to abort)");
   });
 
   bot.callbackQuery(/^reel:addmedia:(.+)$/, async (ctx: Context) => {
@@ -632,7 +632,7 @@ export function registerCallbacks(bot: any): void {
     if (text === "/cancel") {
       const state = await getPendingInput(userId);
       await clearPendingInput(userId);
-      if (state?.startsWith("reel_rewrite:") || state?.startsWith("reel_patch_old:") || state?.startsWith("reel_patch_new:")) {
+      if (state?.startsWith("reel_rewrite:") || state?.startsWith("reel_patch:")) {
         const enc = state.split(":").slice(1).join(":");
         const id = decodeReelId(enc);
         const reel = await getReelById(id);
@@ -662,16 +662,19 @@ export function registerCallbacks(bot: any): void {
       return;
     }
 
-    if (state.startsWith("reel_patch_old:")) {
-      const enc = state.slice("reel_patch_old:".length);
-      await setPendingInput(userId, `reel_patch_new:${enc}`, text);
-      await ctx.reply("🩹 Found the OLD text. Now send the NEW replacement text:");
-      return;
-    }
-
-    if (state.startsWith("reel_patch_new:")) {
-      const enc = state.slice("reel_patch_new:".length);
-      const oldText = (await getPendingFull(userId))?.data || "";
+    if (state.startsWith("reel_patch:")) {
+      const enc = state.slice("reel_patch:".length);
+      const sep = text.indexOf("=>");
+      if (sep === -1) {
+        await ctx.reply("❌ Use this format:\nOLD text => NEW text");
+        return;
+      }
+      const oldText = text.slice(0, sep).trim();
+      const newText = text.slice(sep + 2).trim();
+      if (!oldText || !newText) {
+        await ctx.reply("❌ Both OLD and NEW text are required:\nOLD text => NEW text");
+        return;
+      }
       const id = decodeReelId(enc);
       const reel = await getReelById(id);
       if (!reel) {
@@ -681,10 +684,9 @@ export function registerCallbacks(bot: any): void {
       }
       const activeIsOriginal = reel.mode === "original";
       const current = activeIsOriginal ? reel.originalText : reel.translatedText;
-      const patched = patchText(current, oldText, text);
+      const patched = patchText(current, oldText, newText);
       if (patched === null) {
-        await setPendingInput(userId, `reel_patch_old:${enc}`);
-        await ctx.reply("❌ OLD text not found in the post. Send the exact text to match again:");
+        await ctx.reply("❌ OLD text not found in the post.\nSend:\nOLD text => NEW text");
         return;
       }
       if (activeIsOriginal) {
