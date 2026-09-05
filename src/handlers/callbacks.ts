@@ -99,18 +99,11 @@ function buildReelText(
 ): string {
   const lines = [`🎞 ${reel.channelTitle || reel.channelId}`];
 
-  if (reel.mode === "original") {
-    lines.push(
-      "",
-      "📝 Original:",
-      truncate(reel.originalText, limits.original) || "(none)",
-      "",
-      "🌐 Translation:",
-      truncate(reel.translatedText, limits.translated) || "(none)"
-    );
-  } else {
-    lines.push("", truncate(reel.translatedText, limits.translated) || "(none)");
-  }
+  const body =
+    reel.mode === "original"
+      ? truncate(reel.originalText, limits.original) || "(none)"
+      : truncate(reel.translatedText, limits.translated) || "(none)";
+  lines.push("", body);
   return lines.join("\n");
 }
 
@@ -138,11 +131,11 @@ function buildReelKeyboard(
   }
   keyboard
     .row()
-    .text("🖼 Add Media", `reel:addmedia:${enc}`)
+    .text("◀️ Menu", "menu:main")
     .text("⏭ Skip", `reel:skip:${enc}`)
     .row()
     .text("📤 Post", `reel:post:${enc}`)
-    .text("◀️ Menu", "menu:main");
+    .text("🖼 Add Media", `reel:addmedia:${enc}`);
 
   return { text, keyboard };
 }
