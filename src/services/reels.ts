@@ -36,7 +36,7 @@ export async function downloadSourceMedia(
 // data on queued items before they are shown.
 export async function ensureReelMeta(reel: ReelItem): Promise<void> {
   const hasValidLink = !!reel.sourceLink && reel.sourceLink.startsWith("http");
-  const hasValidChannel = !!reel.channelTitle && !reel.channelId.includes("/");
+  const hasValidChannel = !!reel.channelTitle && !reel.channelId.startsWith("@");
   if (hasValidLink && hasValidChannel) return;
 
   const client = createMonitorClient();
@@ -47,7 +47,7 @@ export async function ensureReelMeta(reel: ReelItem): Promise<void> {
     const meta = await resolveChannelMeta(client, raw, reel.sourceMessageId);
     const realUsername =
       meta.channelUsername && !meta.channelUsername.startsWith("http")
-        ? `@${meta.channelUsername}`
+        ? `https://t.me/${meta.channelUsername}`
         : reel.channelId;
     const updates: Partial<ReelItem> = {
       channelTitle: meta.channelTitle || reel.channelTitle,

@@ -7,6 +7,7 @@ import {
   getConfig,
   updateConfig,
 } from "../services/storage";
+import { toChannelUrl } from "../services/mtproto";
 import { Channel } from "../types";
 
 export function adminOnly(ctx: Context, next: () => Promise<void>): Promise<void> {
@@ -32,7 +33,7 @@ export function registerAdminCommands(bot: any): void {
       .split(/[\s,]+/)
       .map((u) => u.trim())
       .filter(Boolean)
-      .map((u) => (u.startsWith("@") ? u : `@${u}`));
+      .map(toChannelUrl);
 
     let added = 0;
     for (const username of usernames) {
@@ -62,10 +63,7 @@ export function registerAdminCommands(bot: any): void {
       return;
     }
 
-    let username = args[0];
-    if (!username.startsWith("@")) {
-      username = `@${username}`;
-    }
+    const username = toChannelUrl(args[0]);
 
     const channels = await removeChannel(username);
     ctx.reply(`✅ Channel ${username} removed.\n\nTotal monitored: ${channels.length}`);
@@ -98,7 +96,7 @@ export function registerAdminCommands(bot: any): void {
       .split(/[\s,]+/)
       .map((u) => u.trim())
       .filter(Boolean)
-      .map((u) => (u.startsWith("@") ? u : `@${u}`));
+      .map((u) => (u.startsWith("@") ? u : `@${u.replace(/^https?:\/\/t\.me\//i, "")}`));
 
     const unique = [...new Set(usernames)];
     await updateConfig({ targetChannels: unique, targetChannel: unique[0] });

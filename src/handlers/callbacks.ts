@@ -39,6 +39,7 @@ import {
   downloadSourceMedia,
 } from "../services/reels";
 import { isAdmin } from "../config";
+import { toChannelUrl } from "../services/mtproto";
 import { MediaPayload, ReelItem } from "../types";
 
 async function addSourceChannel(username: string, addedBy: number): Promise<boolean> {
@@ -61,7 +62,16 @@ function parseChannels(input: string): string[] {
     .split(/[\s,]+/)
     .map((c) => c.trim())
     .filter(Boolean)
-    .map((c) => (c.startsWith("@") ? c : `@${c}`));
+    .map(toChannelUrl);
+}
+
+// Target channels are posted via Bot API, which needs @username, not URLs.
+function parseTargets(input: string): string[] {
+  return input
+    .split(/[\s,]+/)
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map((c) => (c.startsWith("@") ? c : `@${c.replace(/^https?:\/\/t\.me\//i, "")}`));
 }
 
 async function safeReply(ctx: Context, text: string, keyboard: any): Promise<void> {
@@ -610,17 +620,20 @@ export function registerCallbacks(bot: any): void {
 
     const state = await getPendingInput(userId);
 
-    // No pending flow: a bare @username is treated as adding a source channel
+    // No pending flow: a bare @username (or https://t.me/...) adds a source channel
     if (!state) {
-      const match = text.match(/^@[A-Za-z0-9_]{3,}$/);
+      const match = text.match(/^(@?https?:\/\/t\.me\/)?[A-Za-z0-9_]{3,}$/i);
       if (match) {
-        const username = match[0];
-        const added = await addSourceChannel(username, userId);
+        const username = text.match(/^@[A-Za-z0-9_]{3,}$/)
+          ? text
+          : `@${text.replace(/^https?:\/\/t\.me\//i, "")}`;
+        const normalized = toChannelUrl(username);
+        const added = await addSourceChannel(normalized, userId);
         if (added) {
           const channels = await getChannels();
-          await ctx.reply(`✅ ${username} added as source channel.\n\nTotal sources: ${channels.length}\n\nTap 📥 Source Channels to add more, or 📤 Target Channels to set the output.`);
+          await ctx.reply(`✅ ${normalized} added as source channel.\n\nTotal sources: ${channels.length}\n\nTap 📥 Source Channels to add more, or 📤 Target Channels to set the output.`);
         } else {
-          await ctx.reply(`ℹ️ ${username} is already a source channel.`);
+          await ctx.reply(`ℹ️ ${normalized} is already a source channel.`);
         }
       }
       return;
@@ -723,7 +736,7 @@ export function registerCallbacks(bot: any): void {
       }
       case "addtarget":
       case "settarget": {
-        const usernames = parseChannels(text);
+        const usernames = parseTargets(text);
         if (usernames.length === 0) {
           await ctx.reply("⚠️ No valid channels found. Send usernames like: @sport_news, @sport_news2");
           return;

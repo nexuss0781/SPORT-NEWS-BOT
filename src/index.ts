@@ -11,6 +11,7 @@ import {
 } from "./services/storage";
 import { processAndPublish } from "./services/publisher";
 import { enqueueReel, extractMediaPayloadFromMessage } from "./services/reels";
+import { toChannelUrl } from "./services/mtproto";
 import { cleanContent } from "./services/cleaner";
 import { getMainMenu } from "./menus/index";
 
@@ -151,7 +152,7 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
   if (!message) return;
 
   const chat = message.chat;
-  const channelId = `@${chat.username || chat.id}`;
+  const channelId = toChannelUrl(chat.username || String(chat.id));
   const messageId = message.message_id;
 
   // Check if channel is monitored

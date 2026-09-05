@@ -1,5 +1,6 @@
 import { BotConfig, Channel, ProcessedPost, ReelItem } from "../types";
 import { dbGet, dbSet } from "./db";
+import { toChannelUrl } from "./mtproto";
 export { ProcessedPost } from "../types";
 
 const KEY_CONFIG = "config";
@@ -57,7 +58,21 @@ export async function getTargetChannels(): Promise<string[]> {
 
 // Channels
 export async function getChannels(): Promise<Channel[]> {
-  return (await dbGet<Channel[]>(KEY_CHANNELS)) || [];
+  const list = (await dbGet<Channel[]>(KEY_CHANNELS)) || [];
+  // One-time migration: ensure every stored channel is in https://t.me/... form.
+  let changed = false;
+  const migrated = list.map((c) => {
+    const normalized = toChannelUrl(c.username);
+    if (normalized !== c.username) {
+      changed = true;
+      return { ...c, id: normalized, username: normalized };
+    }
+    return c;
+  });
+  if (changed) {
+    await dbSet(KEY_CHANNELS, migrated);
+  }
+  return migrated;
 }
 
 export async function addChannel(channel: Channel): Promise<Channel[]> {

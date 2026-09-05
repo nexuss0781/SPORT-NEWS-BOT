@@ -23,6 +23,13 @@ export function normalizeUsername(input: string): string {
   return u;
 }
 
+// Normalize any user-supplied channel identifier into an https://t.me/ URL.
+export function toChannelUrl(input: string): string {
+  const username = normalizeUsername(input);
+  if (!username) return input;
+  return `https://t.me/${username}`;
+}
+
 export function createMonitorClient(): TelegramClient {
   if (!config.telegramApiId || !config.telegramApiHash || !config.telegramSession) {
     throw new Error(
