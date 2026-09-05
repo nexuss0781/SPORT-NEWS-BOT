@@ -630,7 +630,17 @@ export function registerCallbacks(bot: any): void {
     }
 
     if (text === "/cancel") {
+      const state = await getPendingInput(userId);
       await clearPendingInput(userId);
+      if (state?.startsWith("reel_rewrite:") || state?.startsWith("reel_patch_old:") || state?.startsWith("reel_patch_new:")) {
+        const enc = state.split(":").slice(1).join(":");
+        const id = decodeReelId(enc);
+        const reel = await getReelById(id);
+        if (reel) {
+          await renderReelById(ctx, id);
+          return;
+        }
+      }
       const { text: menuText, keyboard } = getMainMenu();
       await ctx.reply(menuText, { reply_markup: keyboard });
       return;
