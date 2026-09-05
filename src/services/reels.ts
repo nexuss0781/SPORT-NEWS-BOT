@@ -10,6 +10,37 @@ import {
 } from "./mtproto";
 import { sendMedia, sendMediaGroup } from "./publisher";
 import { BotConfig, CustomEmoji, MediaPayload, ReelItem } from "../types";
+import {
+  copyMessagesToTargets,
+  CopyTargetResult,
+} from "./copyService";
+
+// Resolve every source message id to copy (base + all album mates when grouped).
+// Returns [] when nothing can be resolved (caller then falls back to upload).
+export async function resolveSourceMessageIds(
+  channelId: string,
+  baseMessageId: number,
+  groupedId?: bigint | string
+): Promise<number[]> {
+  if (!groupedId) return [baseMessageId];
+  const client = createMonitorClient();
+  try {
+    await client.connect();
+    const msgs = await fetchGroupedMedia(client, channelId, baseMessageId, groupedId);
+    const ids = msgs
+      .map((m: any) => m.id as number)
+      .filter((id) => typeof id === "number");
+    if (!ids.includes(baseMessageId)) ids.push(baseMessageId);
+    return ids.sort((a, b) => a - b);
+  } catch (error: any) {
+    console.error("[reels] resolve source ids failed:", error?.message || error);
+    return [];
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {}
+  }
+}
 
 // Download source media for preview/posting
 export async function downloadSourceMedia(
@@ -250,8 +281,58 @@ export async function publishReelItem(
 
     const content = buildReelCaption(item, cfg);
     const emojiEntities = buildEmojiEntities(content, item.customEmoji);
+    const api: any = bot.api;
 
-    // Admin-attached media wins; otherwise re-download the original source media as-is.
+    const ids: Record<string, number> = {};
+    let firstId: number | undefined;
+
+    // Try an exact server-side copy (source media as-is, incl. albums) first.
+    // Falls back to download + re-upload per target that failed.
+    const canCopy =
+      item.sourceMedia &&
+      item.addedMedia.length === 0 &&
+      (item.sourceGroupedId !== undefined || item.sourceGroupedMedia?.length);
+    if (canCopy) {
+      const sourceIds = await resolveSourceMessageIds(
+        item.channelId,
+        item.sourceMessageId,
+        item.sourceGroupedId
+      );
+      if (sourceIds.length) {
+        const copyResults = await copyMessagesToTargets({
+          sourceChannelId: item.channelId,
+          sourceMessageIds: sourceIds,
+          targetChannels: targets,
+          caption: content,
+          customEmoji: item.customEmoji,
+        });
+        const copied: Record<string, CopyTargetResult> = {};
+        for (const r of copyResults) copied[r.target] = r;
+        for (const target of targets) {
+          const r = copied[target];
+          if (r?.ok && r.messageId !== undefined) {
+            ids[target] = r.messageId;
+            if (firstId === undefined) firstId = r.messageId;
+          }
+        }
+        const okTargets = Object.keys(ids);
+        if (okTargets.length === targets.length) {
+          return { ok: true, ids, firstId };
+        }
+        targets.splice(
+          0,
+          targets.length,
+          ...targets.filter((t) => !okTargets.includes(t))
+        );
+        for (const r of copyResults) {
+          if (!r.ok) console.error(`[reels] copy to ${r.target} failed:`, r.error);
+        }
+      }
+    }
+
+    if (!targets.length) return { ok: false, error: "Copy failed for all targets." };
+
+    // Download source media as a fallback for targets the copy could not reach.
     let media: MediaPayload | undefined = item.addedMedia[0];
     let album: MediaPayload[] = [];
     if (!media && item.sourceMedia) {
@@ -286,10 +367,6 @@ export async function publishReelItem(
     if (album.length === 0 && !media && item.sourceGroupedMedia?.length) {
       media = item.sourceGroupedMedia[0];
     }
-
-    const api: any = bot.api;
-    const ids: Record<string, number> = {};
-    let firstId: number | undefined;
 
     for (const target of targets) {
       try {

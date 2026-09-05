@@ -2,6 +2,7 @@ import { InputFile } from "grammy";
 import { getConfig, getTargetChannels, markAsProcessed } from "./storage";
 import { translateToAmharic } from "./translator";
 import { BotConfig, MediaPayload } from "../types";
+import { copyMessagesToTargets } from "./copyService";
 
 export { MediaPayload } from "../types";
 
@@ -183,7 +184,8 @@ export async function processAndPublish(
   messageId: number,
   text: string,
   media?: MediaPayload | null,
-  album?: MediaPayload[]
+  album?: MediaPayload[],
+  copySourceIds?: number[]
 ): Promise<void> {
   const cfg = await getConfig();
   const targets = await getTargetChannels();
@@ -199,7 +201,30 @@ export async function processAndPublish(
   const targetMessageIds: Record<string, number> = {};
   let firstSentId: number | undefined;
 
-  for (const target of targets) {
+  // Exact server-side copy first (media + albums as-is). Targets that fail are
+  // reposted via download + re-upload below.
+  let copyFailedTargets: string[] = targets;
+  if (copySourceIds && copySourceIds.length > 0) {
+    const copyResults = await copyMessagesToTargets({
+      sourceChannelId: channelId,
+      sourceMessageIds: copySourceIds,
+      targetChannels: targets,
+      caption: content,
+    });
+    const okTargets: string[] = [];
+    for (const r of copyResults) {
+      if (r.ok && r.messageId !== undefined) {
+        targetMessageIds[r.target] = r.messageId;
+        okTargets.push(r.target);
+        if (firstSentId === undefined) firstSentId = r.messageId;
+      } else {
+        console.error(`Error copying to ${r.target}:`, r.error);
+      }
+    }
+    copyFailedTargets = targets.filter((t) => !okTargets.includes(t));
+  }
+
+  for (const target of copyFailedTargets) {
     try {
       let sent;
       if (album && album.length > 0) {

@@ -124,8 +124,9 @@ export default async function handler(req: any, res: any) {
             // skipped so the album isn't split/reposted.
             let album: MediaPayload[] = [];
             let isEarliest = true;
+            let groupedMsgs: any[] = [];
             if (msg.raw?.groupedId) {
-              const groupedMsgs = await fetchGroupedMedia(client, ch.username, msg.messageId, msg.raw.groupedId);
+              groupedMsgs = await fetchGroupedMedia(client, ch.username, msg.messageId, msg.raw.groupedId);
               if (groupedMsgs.length > 0) {
                 const minId = Math.min(...groupedMsgs.map((m: any) => m.id ?? Number.MAX_SAFE_INTEGER));
                 isEarliest = msg.messageId <= minId;
@@ -151,7 +152,21 @@ export default async function handler(req: any, res: any) {
               continue;
             }
             const media = msg.hasMedia ? await downloadMedia(client, msg.raw) : null;
-            await processAndPublish(bot.api as any, ch.username, msg.messageId, cleaned, media, album.length > 1 ? album : undefined);
+            const copySourceIds =
+              msg.hasMedia && msg.raw?.groupedId
+                ? groupedMsgs.map((m: any) => m.id as number).sort((a: number, b: number) => a - b)
+                : msg.hasMedia
+                  ? [msg.messageId]
+                  : undefined;
+            await processAndPublish(
+              bot.api as any,
+              ch.username,
+              msg.messageId,
+              cleaned,
+              media,
+              album.length > 1 ? album : undefined,
+              copySourceIds
+            );
           }
           results.push({ channel: ch.username, messageId: msg.messageId, ok: true });
         } catch (error: any) {
