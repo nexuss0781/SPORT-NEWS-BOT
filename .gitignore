@@ -8,3 +8,4 @@ data/*.json
 session.txt
 *.log
 .env*
+.vercel
