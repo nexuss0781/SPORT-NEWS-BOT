@@ -131,11 +131,11 @@ function buildReelKeyboard(
   }
   keyboard
     .row()
-    .text("◀️ Menu", "menu:main")
-    .text("⏭ Skip", `reel:skip:${enc}`)
-    .row()
     .text("📤 Post", `reel:post:${enc}`)
-    .text("🖼 Add Media", `reel:addmedia:${enc}`);
+    .text("🖼 Add Media", `reel:addmedia:${enc}`)
+    .row()
+    .text("◀️ Menu", "menu:main")
+    .text("⏭ Skip", `reel:skip:${enc}`);
 
   return { text, keyboard };
 }
