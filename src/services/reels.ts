@@ -288,10 +288,7 @@ export async function publishReelItem(
 
     // Try an exact server-side copy (source media as-is, incl. albums) first.
     // Falls back to download + re-upload per target that failed.
-    const canCopy =
-      item.sourceMedia &&
-      item.addedMedia.length === 0 &&
-      (item.sourceGroupedId !== undefined || item.sourceGroupedMedia?.length);
+    const canCopy = item.sourceMedia && item.addedMedia.length === 0;
     if (canCopy) {
       const sourceIds = await resolveSourceMessageIds(
         item.channelId,
