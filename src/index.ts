@@ -197,6 +197,7 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
         entities,
         sourceLink,
         channelTitle: chat.title || chat.username,
+        groupedId: message.media_group_id,
       });
       return;
     }

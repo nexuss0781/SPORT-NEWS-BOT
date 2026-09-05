@@ -1,14 +1,36 @@
 import { Bot } from "grammy";
-import { addReel, getConfig, getTargetChannels, updateReel } from "./storage";
+import { addReel, getConfig, getReelById, getTargetChannels, updateReel, getQueuedReels } from "./storage";
 import { translateToAmharic } from "./translator";
 import {
   createMonitorClient,
   downloadMedia,
   fetchRawMessage,
+  fetchGroupedMedia,
   resolveChannelMeta,
 } from "./mtproto";
-import { sendMedia } from "./publisher";
+import { sendMedia, sendMediaGroup } from "./publisher";
 import { BotConfig, CustomEmoji, MediaPayload, ReelItem } from "../types";
+
+// Download source media for preview/posting
+export async function downloadSourceMedia(
+  channelId: string,
+  sourceMessageId: number
+): Promise<MediaPayload | undefined> {
+  const client = createMonitorClient();
+  try {
+    await client.connect();
+    const raw = await fetchRawMessage(client, channelId, sourceMessageId);
+    if (!raw) return undefined;
+    return await downloadMedia(client, raw);
+  } catch (error: any) {
+    console.error("[reels] source media download failed:", error?.message || error);
+    return undefined;
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {}
+  }
+}
 
 // Check the post's own metadata and repair missing/broken channel + source link
 // data on queued items before they are shown.
@@ -38,6 +60,32 @@ export async function ensureReelMeta(reel: ReelItem): Promise<void> {
     await updateReel(reel.id, updates);
   } catch (error: any) {
     console.error("[reels] metadata repair failed:", error?.message || error);
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {}
+  }
+}
+
+// Download all media in a grouped album for preview
+export async function downloadGroupedMedia(
+  channelId: string,
+  sourceMessageId: number,
+  groupedId: bigint | string
+): Promise<MediaPayload[]> {
+  const client = createMonitorClient();
+  try {
+    await client.connect();
+    const msgs = await fetchGroupedMedia(client, channelId, sourceMessageId, groupedId);
+    const payloads: MediaPayload[] = [];
+    for (const m of msgs) {
+      const payload = await downloadMedia(client, m);
+      if (payload) payloads.push(payload);
+    }
+    return payloads;
+  } catch (error: any) {
+    console.error("[reels] grouped media download failed:", error?.message || error);
+    return [];
   } finally {
     try {
       await client.disconnect();
@@ -148,6 +196,7 @@ export interface ReelSourceInput {
   entities?: any[];
   sourceLink?: string;
   channelTitle?: string;
+  groupedId?: bigint | string;
 }
 
 export async function enqueueReel(input: ReelSourceInput): Promise<boolean> {
@@ -175,32 +224,14 @@ export async function enqueueReel(input: ReelSourceInput): Promise<boolean> {
     sourceLang: translation.sourceLang,
     mode: "translated",
     sourceMedia: input.hasMedia,
+    sourceGroupedId: input.groupedId,
+    sourceGroupedMedia: [],
     customEmoji,
     addedMedia: [],
     status: "queued",
     queuedAt: new Date().toISOString(),
   };
   return addReel(item);
-}
-
-async function downloadSourceMedia(
-  channelId: string,
-  sourceMessageId: number
-): Promise<MediaPayload | undefined> {
-  const client = createMonitorClient();
-  try {
-    await client.connect();
-    const raw = await fetchRawMessage(client, channelId, sourceMessageId);
-    if (!raw) return undefined;
-    return await downloadMedia(client, raw);
-  } catch (error: any) {
-    console.error("[reels] source media download failed:", error?.message || error);
-    return undefined;
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
-  }
 }
 
 export async function publishReelItem(
@@ -222,8 +253,38 @@ export async function publishReelItem(
 
     // Admin-attached media wins; otherwise re-download the original source media as-is.
     let media: MediaPayload | undefined = item.addedMedia[0];
+    let album: MediaPayload[] = [];
     if (!media && item.sourceMedia) {
       media = await downloadSourceMedia(item.channelId, item.sourceMessageId);
+    }
+    // Albums (Bot API sendMediaGroup): only photo/video items can be grouped.
+    const albumReady = (list: MediaPayload[]) =>
+      list.filter((m) => m.kind === "photo" || m.kind === "video");
+    if (item.addedMedia.length > 1) {
+      album = albumReady(item.addedMedia);
+      media = undefined;
+    } else if (item.sourceGroupedMedia && item.sourceGroupedMedia.length > 0) {
+      album = albumReady(item.sourceGroupedMedia);
+      media = undefined;
+    } else if (item.sourceGroupedId && !media) {
+      album = albumReady(
+        await downloadGroupedMedia(
+          item.channelId,
+          item.sourceMessageId,
+          item.sourceGroupedId
+        )
+      );
+      media = undefined;
+    }
+    if (album.length === 1) {
+      media = album[0];
+      album = [];
+    }
+    if (album.length === 0 && !media && item.addedMedia.length > 0) {
+      media = item.addedMedia[0];
+    }
+    if (album.length === 0 && !media && item.sourceGroupedMedia?.length) {
+      media = item.sourceGroupedMedia[0];
     }
 
     const api: any = bot.api;
@@ -232,14 +293,17 @@ export async function publishReelItem(
 
     for (const target of targets) {
       try {
-        const sent = media
-          ? await sendMedia(api, target, media, content, emojiEntities)
-          : await api.sendMessage(
-              target,
-              content,
-              emojiEntities.length > 0 ? { entities: emojiEntities } : undefined
-            );
-        const sentId = sent?.message_id;
+        const sent =
+          album.length > 0
+            ? await sendMediaGroup(api, target, album, content, emojiEntities)
+            : media
+              ? await sendMedia(api, target, media, content, emojiEntities)
+              : await api.sendMessage(
+                  target,
+                  content,
+                  emojiEntities.length > 0 ? { entities: emojiEntities } : undefined
+                );
+        const sentId = sent?.message_id ?? sent?.[0]?.message_id;
         if (sentId === undefined) continue;
         const chatKey = sent?.chat?.id !== undefined ? String(sent.chat.id) : target;
         ids[chatKey] = sentId;

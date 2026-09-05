@@ -10,6 +10,8 @@ export interface MonitorMessage {
   date: number;
   hasMedia: boolean;
   raw?: any;
+  groupedId?: bigint;
+  groupedMessages?: MonitorMessage[];
 }
 
 const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
@@ -123,6 +125,7 @@ function toMessage(m: any): MonitorMessage | undefined {
     date: m.date,
     hasMedia,
     raw: hasMedia ? m : undefined,
+    groupedId: m.groupedId,
   };
 }
 
@@ -153,6 +156,45 @@ export async function fetchRawMessage(
     return msg;
   } catch {
     return undefined;
+  }
+}
+
+// Fetch all messages in a grouped media album by groupedId
+export async function fetchGroupedMedia(
+  client: TelegramClient,
+  username: string,
+  baseMessageId: number,
+  groupedId: bigint | string
+): Promise<any[]> {
+  const cleanName = normalizeUsername(username);
+  if (!cleanName) return [];
+
+  let peer;
+  try {
+    peer = await client.getInputEntity(cleanName);
+  } catch {
+    return [];
+  }
+
+  try {
+    // Fetch messages around the base message to find all in the same group
+    const res: any = await client.invoke(
+      new Api.messages.GetHistory({
+        peer,
+        limit: 50,
+        addOffset: -25,
+        offsetId: baseMessageId,
+      })
+    );
+    const messages = res?.messages || [];
+    return messages.filter(
+      (m: any) =>
+        m.className === "Message" &&
+        m.groupedId !== undefined &&
+        String(m.groupedId) === String(groupedId)
+    );
+  } catch {
+    return [];
   }
 }
 

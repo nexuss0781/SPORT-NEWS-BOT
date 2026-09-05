@@ -1,4 +1,4 @@
-import { Context, InlineKeyboard } from "grammy";
+import { Context, InlineKeyboard, InputFile } from "grammy";
 import {
   getMainMenu,
   getChannelsMenu,
@@ -36,9 +36,10 @@ import {
   extractMediaPayloadFromMessage,
   publishReelItem,
   ensureReelMeta,
+  downloadSourceMedia,
 } from "../services/reels";
 import { isAdmin } from "../config";
-import { ReelItem } from "../types";
+import { MediaPayload, ReelItem } from "../types";
 
 async function addSourceChannel(username: string, addedBy: number): Promise<boolean> {
   const channels = await getChannels();
@@ -80,30 +81,37 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}\n…` : s;
 }
 
-function buildReelKeyboard(reel: ReelItem): { text: string; keyboard: InlineKeyboard } {
-  const enc = encodeReelId(reel.id);
-  const mediaMark = reel.addedMedia.length
-    ? `📎 media +${reel.addedMedia.length}`
-    : reel.sourceMedia
-      ? "📎 has media"
-      : "";
-
-  const lines = [
-    `🎞 ${reel.channelTitle || reel.channelId}${mediaMark ? ` • ${mediaMark}` : ""}`,
-  ];
+// Build the review card body. Limits differ for text cards (messages hold
+// 4096 chars) vs media captions (Bot API caps at 1024).
+function buildReelText(
+  reel: ReelItem,
+  limits: { translated: number; original: number } = { translated: 1600, original: 900 }
+): string {
+  const lines = [`🎞 ${reel.channelTitle || reel.channelId}`];
 
   if (reel.mode === "original") {
     lines.push(
       "",
       "📝 Original:",
-      truncate(reel.originalText, 900) || "(none)",
+      truncate(reel.originalText, limits.original) || "(none)",
       "",
       "🌐 Translation:",
-      truncate(reel.translatedText, 900) || "(none)"
+      truncate(reel.translatedText, limits.translated) || "(none)"
     );
   } else {
-    lines.push("", truncate(reel.translatedText, 1600) || "(none)");
+    lines.push("", truncate(reel.translatedText, limits.translated) || "(none)");
   }
+  return lines.join("\n");
+}
+
+function buildReelKeyboard(
+  reel: ReelItem,
+  compact = false
+): { text: string; keyboard: InlineKeyboard } {
+  const enc = encodeReelId(reel.id);
+  const text = compact
+    ? buildReelText(reel, { translated: 620, original: 300 })
+    : buildReelText(reel);
 
   const keyboard = new InlineKeyboard()
     .text("✏️ Rewrite", `reel:rewrite:${enc}`)
@@ -126,7 +134,78 @@ function buildReelKeyboard(reel: ReelItem): { text: string; keyboard: InlineKeyb
     .text("📤 Post", `reel:post:${enc}`)
     .text("◀️ Menu", "menu:main");
 
-  return { text: lines.join("\n"), keyboard };
+  return { text, keyboard };
+}
+
+// Latest sent review-card message per admin so re-renders can clean up.
+const reviewCards = new Map<number, number>();
+
+// Pick the media to preview on the review card (admin-added first, else source).
+async function pickPreviewMedia(reel: ReelItem): Promise<MediaPayload | undefined> {
+  if (reel.addedMedia.length > 0) {
+    return reel.addedMedia[0];
+  }
+  if (!reel.sourceMedia) return undefined;
+  return await downloadSourceMedia(reel.channelId, reel.sourceMessageId);
+}
+
+// Turn a MediaPayload value into something grammY can send (file_id string or
+// InputFile). Downloaded source buffers are wrapped with a proper filename so
+// Telegram renders them as the right content type.
+function toBotInput(media: MediaPayload): string | InputFile {
+  if (typeof media.value === "string") return media.value;
+  const buf = Buffer.isBuffer(media.value)
+    ? media.value
+    : Buffer.from(media.value as any);
+  return new InputFile(buf, media.fileName || "preview");
+}
+
+async function sendReelCard(
+  ctx: Context,
+  reel: ReelItem,
+  header: string
+): Promise<void> {
+  const media = await pickPreviewMedia(reel);
+  const hasPreview = !!media && media.kind !== "document";
+  const { text, keyboard } = buildReelKeyboard(reel, hasPreview);
+  const caption = `${header}\n\n${text}`;
+  const userId = ctx.from?.id;
+
+  if (hasPreview && media) {
+    // Send an actual media preview with the caption + buttons.
+    const input = toBotInput(media);
+    let sent: any;
+    const baseOpts: Record<string, any> = { caption, reply_markup: keyboard };
+    if (media.kind === "photo") {
+      sent = await ctx.replyWithPhoto(input, baseOpts);
+    } else if (media.kind === "video") {
+      const videoOpts: Record<string, any> = { ...baseOpts, supports_streaming: true };
+      if (media.width) videoOpts.width = media.width;
+      if (media.height) videoOpts.height = media.height;
+      sent = await ctx.replyWithVideo(input, videoOpts);
+    } else if (media.kind === "animation") {
+      sent = await ctx.replyWithAnimation(input, baseOpts);
+    } else if (media.kind === "audio") {
+      sent = await ctx.replyWithAudio(input, baseOpts);
+    } else {
+      const photoOpts: Record<string, any> = { ...baseOpts };
+      if (media.width) photoOpts.width = media.width;
+      if (media.height) photoOpts.height = media.height;
+      sent = await ctx.replyWithPhoto(input, photoOpts);
+    }
+
+    if (userId !== undefined && sent?.message_id !== undefined) {
+      const prev = reviewCards.get(userId);
+      if (prev !== undefined) {
+        try {
+          await ctx.api.deleteMessage(ctx.chat!.id, prev);
+        } catch {}
+      }
+      reviewCards.set(userId, sent.message_id);
+    }
+  } else {
+    await safeReply(ctx, caption, keyboard);
+  }
 }
 
 async function showQueue(ctx: Context): Promise<void> {
@@ -144,12 +223,7 @@ async function showQueue(ctx: Context): Promise<void> {
   const reel = queued[0];
   await ensureReelMeta(reel);
   const fixed = (await getQueuedReels()).find((r) => r.id === reel.id) || reel;
-  const { text, keyboard } = buildReelKeyboard(fixed);
-  await safeReply(
-    ctx,
-    `Queue: ${count} post${count > 1 ? "s" : ""} • showing 1\n\n${text}`,
-    keyboard
-  );
+  await sendReelCard(ctx, fixed, `Queue: ${count} post${count > 1 ? "s" : ""} • showing 1`);
 }
 
 async function renderReelById(ctx: Context, id: string): Promise<void> {
@@ -162,12 +236,7 @@ async function renderReelById(ctx: Context, id: string): Promise<void> {
   const count = queued.length;
   await ensureReelMeta(queued[idx]);
   const fixed = (await getQueuedReels()).find((r) => r.id === id) || queued[idx];
-  const { text, keyboard } = buildReelKeyboard(fixed);
-  await safeReply(
-    ctx,
-    `Queue: ${count} post${count > 1 ? "s" : ""} • showing ${idx + 1}\n\n${text}`,
-    keyboard
-  );
+  await sendReelCard(ctx, fixed, `Queue: ${count} post${count > 1 ? "s" : ""} • showing ${idx + 1}`);
 }
 
 export function registerCallbacks(bot: any): void {

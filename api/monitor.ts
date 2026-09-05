@@ -1,16 +1,21 @@
 import { Bot } from "grammy";
 import { config } from "../src/config";
+import { MediaPayload } from "../src/services/publisher";
 import {
   getChannels,
   getTargetChannels,
   getConfig,
   isProcessed,
+  getReelById,
+  updateReel,
+  markAsProcessed,
 } from "../src/services/storage";
 import {
   createMonitorClient,
   fetchRecentMessages,
   resolveChannelMeta,
   downloadMedia,
+  fetchGroupedMedia,
 } from "../src/services/mtproto";
 import { processAndPublish } from "../src/services/publisher";
 import { enqueueReel } from "../src/services/reels";
@@ -67,20 +72,86 @@ export default async function handler(req: any, res: any) {
 
         try {
           if (reelsMode) {
+            // Collapse albums: only the earliest message of a groupedId becomes a reel.
+            const isEarliestInGroup = !msg.raw?.groupedId;
+            const groupedMsgs = msg.raw?.groupedId
+              ? await fetchGroupedMedia(client, ch.username, msg.messageId, msg.raw.groupedId)
+              : [];
+            if (groupedMsgs.length > 0) {
+              const minId = Math.min(...groupedMsgs.map((m: any) => m.id ?? Number.MAX_SAFE_INTEGER));
+              if (msg.messageId > minId) {
+                results.push({ channel: ch.username, messageId: msg.messageId, ok: true, skipped: "album item" });
+                await markAsProcessed({
+                  channelId: ch.username,
+                  messageId: msg.messageId,
+                  originalText: cleaned,
+                  translatedText: cleaned,
+                  englishText: cleaned,
+                  sourceLang: "en",
+                  processedAt: new Date().toISOString(),
+                });
+                continue;
+              }
+            }
+
             // Check the post's own metadata first: who the channel is + official link
             const meta = await resolveChannelMeta(client, msg.raw, msg.messageId);
+            let groupedMedia: MediaPayload[] = [];
+            for (const m of groupedMsgs) {
+              const p = await downloadMedia(client, m);
+              if (p) groupedMedia.push(p);
+            }
             await enqueueReel({
               channelId: ch.username,
               messageId: msg.messageId,
               text: cleaned,
-              hasMedia: msg.hasMedia,
+              hasMedia: msg.hasMedia || groupedMedia.length > 0,
               entities: msg.raw?.entities,
               sourceLink: meta.sourceLink,
               channelTitle: meta.channelTitle,
+              groupedId: msg.raw?.groupedId,
             });
+            // Store grouped media on the reel
+            if (groupedMedia.length > 0) {
+              const reelId = `${ch.username}:${msg.messageId}`;
+              const reel = await getReelById(reelId);
+              if (reel) {
+                await updateReel(reel.id, { sourceGroupedMedia: groupedMedia });
+              }
+            }
           } else {
+            // Albums post as a single grouped media message; other items are
+            // skipped so the album isn't split/reposted.
+            let album: MediaPayload[] = [];
+            let isEarliest = true;
+            if (msg.raw?.groupedId) {
+              const groupedMsgs = await fetchGroupedMedia(client, ch.username, msg.messageId, msg.raw.groupedId);
+              if (groupedMsgs.length > 0) {
+                const minId = Math.min(...groupedMsgs.map((m: any) => m.id ?? Number.MAX_SAFE_INTEGER));
+                isEarliest = msg.messageId <= minId;
+                if (isEarliest) {
+                  for (const m of groupedMsgs) {
+                    const p = await downloadMedia(client, m);
+                    if (p) album.push(p);
+                  }
+                }
+              }
+            }
+            if (!isEarliest) {
+              results.push({ channel: ch.username, messageId: msg.messageId, ok: true, skipped: "album item" });
+              await markAsProcessed({
+                channelId: ch.username,
+                messageId: msg.messageId,
+                originalText: cleaned,
+                translatedText: cleaned,
+                englishText: cleaned,
+                sourceLang: "en",
+                processedAt: new Date().toISOString(),
+              });
+              continue;
+            }
             const media = msg.hasMedia ? await downloadMedia(client, msg.raw) : null;
-            await processAndPublish(bot.api as any, ch.username, msg.messageId, cleaned, media);
+            await processAndPublish(bot.api as any, ch.username, msg.messageId, cleaned, media, album.length > 1 ? album : undefined);
           }
           results.push({ channel: ch.username, messageId: msg.messageId, ok: true });
         } catch (error: any) {

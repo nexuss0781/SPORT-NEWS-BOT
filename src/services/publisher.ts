@@ -139,12 +139,51 @@ export async function sendMedia(
   }
 }
 
+// Send a grouped media album. The caption goes on the first item only.
+export async function sendMediaGroup(
+  api: SendApi,
+  target: string,
+  mediaList: MediaPayload[],
+  caption: string,
+  entities?: { type: string; offset: number; length: number; custom_emoji_id: string }[]
+): Promise<any> {
+  if (!mediaList.length) return undefined;
+  const inputs: any[] = [];
+  for (let i = 0; i < mediaList.length; i++) {
+    const media = mediaList[i];
+    const fileName = defaultFileName(media.kind, media);
+    const file =
+      typeof media.value === "string"
+        ? media.value
+        : new InputFile(toBuffer(media.value), fileName);
+    const item: Record<string, any> = {
+      type: media.kind === "photo" ? "photo" : "video",
+      media: file,
+    };
+    if (media.kind === "video") {
+      item.supports_streaming = true;
+      if (media.duration) item.duration = media.duration;
+      if (media.width) item.width = media.width;
+      if (media.height) item.height = media.height;
+    }
+    if (i === 0 && caption) {
+      item.caption = caption;
+      if (entities && entities.length > 0) {
+        item.caption_entities = entities;
+      }
+    }
+    inputs.push(item);
+  }
+  return api.sendMediaGroup(target, inputs);
+}
+
 export async function processAndPublish(
   api: SendApi,
   channelId: string,
   messageId: number,
   text: string,
-  media?: MediaPayload | null
+  media?: MediaPayload | null,
+  album?: MediaPayload[]
 ): Promise<void> {
   const cfg = await getConfig();
   const targets = await getTargetChannels();
@@ -162,10 +201,15 @@ export async function processAndPublish(
 
   for (const target of targets) {
     try {
-      const sent = media
-        ? await sendMedia(api, target, media, content)
-        : await api.sendMessage(target, content);
-      const sentId = sent?.message_id;
+      let sent;
+      if (album && album.length > 0) {
+        sent = await sendMediaGroup(api, target, album, content);
+      } else {
+        sent = media
+          ? await sendMedia(api, target, media, content)
+          : await api.sendMessage(target, content);
+      }
+      const sentId = sent?.message_id ?? sent?.[0]?.message_id;
       if (sentId === undefined) continue;
       const chatKey = sent?.chat?.id !== undefined ? String(sent.chat.id) : target;
       targetMessageIds[chatKey] = sentId;

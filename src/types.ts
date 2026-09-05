@@ -32,6 +32,8 @@ export interface ReelItem {
   sourceLang: string;
   mode: "translated" | "original";
   sourceMedia: boolean;
+  sourceGroupedId?: bigint | string;
+  sourceGroupedMedia?: MediaPayload[];
   customEmoji: CustomEmoji[];
   addedMedia: MediaPayload[];
   status: "queued" | "posted" | "skipped";
