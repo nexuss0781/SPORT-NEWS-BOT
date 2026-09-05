@@ -155,6 +155,45 @@ export function getHelpMenu(): { text: string; keyboard: InlineKeyboard } {
   return { text, keyboard };
 }
 
+// Reels Home (dashboard)
+export function getReelsHomeMenu(stats: {
+  queued: number;
+  posted: number;
+  skipped: number;
+}): { text: string; keyboard: InlineKeyboard } {
+  const text = [
+    "╔══════════════════════════╗",
+    "║        🎞 REELS          ║",
+    "╚══════════════════════════╝",
+    "",
+    "📰 Scroll through the queued",
+    "sport news. Every post is",
+    "pre-translated and ready",
+    "to review.",
+    "",
+    "• Edit ✏️ or Patch 🩹 the text",
+    "• Toggle Original vs Translation",
+    "• Attach Media 🖼",
+    "• Then Post 📤 or Skip ⏭",
+    "• 🔗 opens the source post",
+    "",
+    "📊 Queue Stats:",
+    `🗞 Queued: ${stats.queued}`,
+    `✅ Posted: ${stats.posted}`,
+    `⏭ Skipped: ${stats.skipped}`,
+    "",
+    "Scroll through each post one",
+    "at a time. Start below:",
+  ].join("\n");
+
+  const keyboard = new InlineKeyboard()
+    .text("▶️ Start", "menu:reels:start")
+    .row()
+    .text("◀️ Back", "menu:main");
+
+  return { text, keyboard };
+}
+
 // Confirm Dialog
 export function getConfirmDialog(message: string, confirmAction: string, cancelAction: string): { text: string; keyboard: InlineKeyboard } {
   const text = `⚠️ ${message}`;

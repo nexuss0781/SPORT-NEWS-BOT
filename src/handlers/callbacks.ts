@@ -11,6 +11,7 @@ import {
   getSetTargetPrompt,
   getSetSignaturePrompt,
   getSetLanguagePrompt,
+  getReelsHomeMenu,
 } from "../menus/index";
 import {
   getChannels,
@@ -24,6 +25,7 @@ import {
   clearPendingInput,
   getQueuedReels,
   getReelById,
+  getReelStats,
   updateReel,
   markAsProcessed,
 } from "../services/storage";
@@ -79,25 +81,26 @@ function truncate(s: string, max: number): string {
 
 function buildReelKeyboard(reel: ReelItem): { text: string; keyboard: InlineKeyboard } {
   const enc = encodeReelId(reel.id);
-  const active = reel.mode === "original" ? reel.originalText : reel.translatedText;
-  const lines = [
-    "╔══════════════════════════╗",
-    "║        🎞 REELS          ║",
-    "╚══════════════════════════╝",
-    "",
-    `Source: ${reel.channelId}`,
-    `Mode: ${reel.mode === "original" ? "📝 Original" : "🌐 Translated"}`,
-    reel.sourceMedia ? "Media: original attached" : "Media: none",
-    reel.addedMedia.length ? `Added files: ${reel.addedMedia.length}` : "",
-    "",
-    `${reel.mode === "original" ? "🖊" : "📄"} Original:`,
-    truncate(reel.originalText, 600) || "(none)",
-    "",
-    `${reel.mode === "translated" ? "🖊" : "📄"} Translation:`,
-    truncate(active, 900) || "(none)",
-  ]
-    .filter((l) => l !== "")
-    .join("\n");
+  const mediaMark = reel.addedMedia.length
+    ? `📎 media +${reel.addedMedia.length}`
+    : reel.sourceMedia
+      ? "📎 has media"
+      : "";
+
+  const lines = [`🎞 ${reel.channelId}${mediaMark ? ` • ${mediaMark}` : ""}`];
+
+  if (reel.mode === "original") {
+    lines.push(
+      "",
+      "📝 Original:",
+      truncate(reel.originalText, 900) || "(none)",
+      "",
+      "🌐 Translation:",
+      truncate(reel.translatedText, 900) || "(none)"
+    );
+  } else {
+    lines.push("", truncate(reel.translatedText, 1600) || "(none)");
+  }
 
   const keyboard = new InlineKeyboard()
     .text("✏️ Rewrite", `reel:rewrite:${enc}`)
@@ -107,17 +110,15 @@ function buildReelKeyboard(reel: ReelItem): { text: string; keyboard: InlineKeyb
       reel.mode === "translated" ? "🔁 Use Original" : "🌐 Use Translation",
       `reel:toggle:${enc}`
     )
-    .row()
     .text("🖼 Add Media", `reel:addmedia:${enc}`)
     .row()
     .text("📤 Post", `reel:post:${enc}`)
     .text("⏭ Skip", `reel:skip:${enc}`)
     .row()
     .url("🔗 Original Post", reel.sourceLink)
-    .row()
     .text("◀️ Menu", "menu:main");
 
-  return { text: lines, keyboard };
+  return { text: lines.join("\n"), keyboard };
 }
 
 async function showQueue(ctx: Context): Promise<void> {
@@ -221,6 +222,17 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery("menu:reels", async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!isAdmin(ctx.from?.id)) {
+      await ctx.reply("⛔ You are not authorized.");
+      return;
+    }
+    const stats = await getReelStats();
+    const { text, keyboard } = getReelsHomeMenu(stats);
+    await safeReply(ctx, text, keyboard);
+  });
+
+  bot.callbackQuery("menu:reels:start", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
     if (!isAdmin(ctx.from?.id)) {
       await ctx.reply("⛔ You are not authorized.");

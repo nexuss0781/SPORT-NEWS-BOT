@@ -213,3 +213,16 @@ export async function updateReel(
   all[idx] = { ...all[idx], ...updates };
   await dbSet(KEY_REELS, all);
 }
+
+export async function getReelStats(): Promise<{
+  queued: number;
+  posted: number;
+  skipped: number;
+}> {
+  const all = await getReels();
+  return {
+    queued: all.filter((r) => r.status === "queued").length,
+    posted: all.filter((r) => r.status === "posted").length,
+    skipped: all.filter((r) => r.status === "skipped").length,
+  };
+}
