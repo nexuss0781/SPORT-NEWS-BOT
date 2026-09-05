@@ -124,11 +124,11 @@ async function showQueue(ctx: Context): Promise<void> {
   const queued = await getQueuedReels();
   if (queued.length === 0) {
     const keyboard = new InlineKeyboard().text("◀️ Back", "menu:main");
-    await safeReply(
-      ctx,
-      "🎞 REELS\n\nQueue is empty.\n\nEnable Reels Mode in ⚙️ Settings to queue new posts here instead of auto-posting them.",
-      keyboard
-    );
+    const cfg = await getConfig();
+    const emptyText = cfg.reelsMode
+      ? "🎞 REELS\n\nQueue is empty. New posts will land here for review."
+      : "🎞 REELS\n\nQueue is empty. Enable Reels Mode in ⚙️ Settings to queue new posts here instead of auto-posting them.";
+    await safeReply(ctx, emptyText, keyboard);
     return;
   }
   const count = queued.length;
