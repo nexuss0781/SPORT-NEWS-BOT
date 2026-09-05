@@ -7,6 +7,7 @@ import {
   downloadMedia,
 } from "../src/services/mtproto";
 import { processAndPublish } from "../src/services/publisher";
+import { cleanContent } from "../src/services/cleaner";
 
 // Light-weight bot instance just for posting to the target channel
 const bot = new Bot(config.botToken);
@@ -52,12 +53,16 @@ export default async function handler(req: any, res: any) {
         if (await isProcessed(ch.username, msg.messageId)) continue;
         if (now - msg.date > LOOKBACK_SECONDS) continue;
 
+        const cleaned = cleanContent(msg.text);
+        if (!cleaned && !msg.hasMedia) continue;
+
         try {
           let media: any;
           if (msg.hasMedia && msg.raw) {
             media = await downloadMedia(client, msg.raw);
           }
-          await processAndPublish(bot.api as any, ch.username, msg.messageId, msg.text, media);
+          if (!cleaned && !media) continue;
+          await processAndPublish(bot.api as any, ch.username, msg.messageId, cleaned, media);
           results.push({ channel: ch.username, messageId: msg.messageId, ok: true });
         } catch (error: any) {
           results.push({

@@ -10,6 +10,7 @@ import {
   getProcessedPostByTargetMessage,
 } from "./services/storage";
 import { processAndPublish, MediaPayload } from "./services/publisher";
+import { cleanContent } from "./services/cleaner";
 import { getMainMenu } from "./menus/index";
 
 export function createBot(): Bot {
@@ -171,27 +172,19 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
     text = message.caption;
   }
 
-  if (!text || text.trim().length === 0) {
-    if (!isMediaMessage(message)) return;
+  let cleaned = "";
+  if (text && text.trim().length > 0) {
+    cleaned = cleanContent(text.trim());
   }
 
+  const media = extractMedia(message);
+  if (!cleaned && !media) return;
+
   try {
-    const media = extractMedia(message);
-    await processAndPublish(ctx.api, channelId, messageId, text.trim(), media);
+    await processAndPublish(ctx.api, channelId, messageId, cleaned, media);
   } catch (error) {
     console.error(`Error processing post from ${channelId}:`, error);
   }
-}
-
-function isMediaMessage(message: any): boolean {
-  return Boolean(
-    message?.photo ||
-    message?.video ||
-    message?.animation ||
-    message?.document ||
-    message?.audio ||
-    message?.voice
-  );
 }
 
 function extractMedia(message: any): MediaPayload | undefined {
