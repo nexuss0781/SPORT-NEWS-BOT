@@ -1,6 +1,7 @@
 import { BotConfig, Channel, ProcessedPost, ReelItem } from "../types";
 import { dbGet, dbSet } from "./db";
 import { toChannelUrl } from "./mtproto";
+import { LaneRelease } from "./postRules";
 export { ProcessedPost } from "../types";
 
 const KEY_CONFIG = "config";
@@ -8,6 +9,7 @@ const KEY_CHANNELS = "channels";
 const KEY_PROCESSED = "processed";
 const KEY_PENDING = "pending";
 const KEY_REELS = "reels";
+const KEY_LANE_RELEASES = "lane_releases";
 
 // Bot Config
 const DEFAULT_SIGNATURE = "SHARE ⬅️\n🤳@Ethio_Utd ✅";
@@ -22,6 +24,15 @@ const DEFAULT_CONFIG: BotConfig = {
   owners: [],
   admins: [],
   roleNames: {},
+  postRules: {
+    timeEnabled: false,
+    gapSeconds: 0,
+    viewEnabled: false,
+    freePosts: 3,
+    perPost: null,
+    nthCount: null,
+    nthTotal: null,
+  },
 };
 
 export async function getConfig(): Promise<BotConfig> {
@@ -40,6 +51,12 @@ export async function getConfig(): Promise<BotConfig> {
       admins: Array.isArray(cfg.admins) ? cfg.admins : [],
       roleNames: cfg.roleNames || {},
     };
+    await dbSet(KEY_CONFIG, migrated);
+    return migrated;
+  }
+  // Backfill post rules
+  if (!cfg.postRules) {
+    const migrated = { ...cfg, postRules: DEFAULT_CONFIG.postRules };
     await dbSet(KEY_CONFIG, migrated);
     return migrated;
   }
@@ -213,6 +230,24 @@ export async function getQueuedReels(): Promise<ReelItem[]> {
     );
 }
 
+// Reels that are scheduled and now due (in reels mode the monitor publishes
+// these automatically, bypassing post rules).
+export async function getDueScheduledReels(): Promise<ReelItem[]> {
+  const all = await getReels();
+  const now = Date.now();
+  return all
+    .filter(
+      (r) =>
+        r.status === "queued" &&
+        r.scheduledAt &&
+        new Date(r.scheduledAt).getTime() <= now
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime()
+    );
+}
+
 export async function getReelById(id: string): Promise<ReelItem | undefined> {
   const all = await getReels();
   return all.find((r) => r.id === id);
@@ -254,4 +289,51 @@ export async function getReelStats(): Promise<{
     posted: all.filter((r) => r.status === "posted").length,
     skipped: all.filter((r) => r.status === "skipped").length,
   };
+}
+
+// Per-target-channel release history used by the Post Rules view/time rules.
+// Each target lane tracks its own released posts independently.
+export async function getLaneReleases(channel: string): Promise<LaneRelease[]> {
+  const key = normalizeLaneKey(channel);
+  if (!key) return [];
+  const all = (await dbGet<Record<string, LaneRelease[]>>(KEY_LANE_RELEASES)) || {};
+  return (all[key] || []).sort((a, b) => a.releasedAt - b.releasedAt);
+}
+
+export async function appendLaneRelease(
+  channel: string,
+  targetMessageId: number,
+  releasedAt: number = Date.now()
+): Promise<void> {
+  const key = normalizeLaneKey(channel);
+  if (!key || !Number.isInteger(targetMessageId)) return;
+  const all = (await dbGet<Record<string, LaneRelease[]>>(KEY_LANE_RELEASES)) || {};
+  const list = all[key] || [];
+  // Dedupe identical message ids.
+  if (list.some((r) => r.targetMessageId === targetMessageId)) return;
+  list.push({ targetMessageId, releasedAt });
+  all[key] = list.slice(-200);
+  await dbSet(KEY_LANE_RELEASES, all);
+}
+
+export async function updateLaneReleaseViews(
+  channel: string,
+  targetMessageId: number,
+  views: number
+): Promise<void> {
+  const key = normalizeLaneKey(channel);
+  if (!key) return;
+  const all = (await dbGet<Record<string, LaneRelease[]>>(KEY_LANE_RELEASES)) || {};
+  const list = all[key] || [];
+  const entry = list.find((r) => r.targetMessageId === targetMessageId);
+  if (entry) entry.views = views;
+  await dbSet(KEY_LANE_RELEASES, all);
+}
+
+function normalizeLaneKey(channel: string): string {
+  let u = String(channel || "").trim();
+  u = u.replace(/^@/, "");
+  u = u.replace(/^https?:\/\/t\.me\//i, "");
+  u = u.split(/[/?#]/)[0];
+  return u;
 }

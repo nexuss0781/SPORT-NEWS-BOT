@@ -5,6 +5,16 @@ export interface Channel {
   addedBy: number;
 }
 
+export interface PostRules {
+  timeEnabled: boolean;
+  gapSeconds: number;
+  viewEnabled: boolean;
+  freePosts: number;
+  perPost: number | null;
+  nthCount: number | null;
+  nthTotal: number | null;
+}
+
 export interface BotConfig {
   targetChannel: string | null;
   targetChannels: string[];
@@ -16,6 +26,7 @@ export interface BotConfig {
   owners?: number[];
   admins?: number[];
   roleNames?: Record<string, string>;
+  postRules?: PostRules;
 }
 
 export interface CustomEmoji {
@@ -41,6 +52,7 @@ export interface ReelItem {
   addedMedia: MediaPayload[];
   status: "queued" | "posted" | "skipped";
   queuedAt: string;
+  scheduledAt?: string;
   targetMessageIds?: Record<string, number>;
   targetMessageId?: number;
 }

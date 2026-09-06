@@ -14,6 +14,8 @@ import {
   getReelsHomeMenu,
   getRolesMenu,
   getAddRolePrompt,
+  getPostRulesMenu,
+  getPostRulePrompt,
 } from "../menus/index";
 import {
   getChannels,
@@ -30,6 +32,9 @@ import {
   getReelStats,
   updateReel,
   markAsProcessed,
+  getLaneReleases,
+  updateLaneReleaseViews,
+  getTargetChannels,
 } from "../services/storage";
 import {
   encodeReelId,
@@ -50,7 +55,9 @@ import {
   resolveUsernameToId,
 } from "../services/roles";
 import { toChannelUrl } from "../services/mtproto";
-import { MediaPayload, ReelItem } from "../types";
+import { fetchViews } from "../services/views";
+import { parseDuration, formatDuration, parseK, evaluateTimeRule, evaluateViewRule } from "../services/postRules";
+import { BotConfig, MediaPayload, PostRules, ReelItem } from "../types";
 
 async function requireOwner(ctx: Context): Promise<boolean> {
   if (!(await isOwner(ctx.from?.id))) {
@@ -135,9 +142,13 @@ function buildReelKeyboard(
   compact = false
 ): { text: string; keyboard: InlineKeyboard } {
   const enc = encodeReelId(reel.id);
-  const text = compact
+  let text = compact
     ? buildReelText(reel, { translated: 620, original: 300 })
     : buildReelText(reel);
+  if (reel.scheduledAt) {
+    const at = new Date(reel.scheduledAt);
+    text += `\n\n📅 Scheduled: ${at.toLocaleString()}`;
+  }
 
   const keyboard = new InlineKeyboard()
     .text("✏️ Rewrite", `reel:rewrite:${enc}`)
@@ -156,6 +167,9 @@ function buildReelKeyboard(
     .row()
     .text("🖼 Add Media", `reel:addmedia:${enc}`)
     .text("📤 Post", `reel:post:${enc}`)
+    .row()
+    .text("⚡ Post Now", `reel:postnow:${enc}`)
+    .text("📅 Schedule", `reel:schedule:${enc}`)
     .row()
     .text("◀️ Menu", "menu:main")
     .text("⏭ Skip", `reel:skip:${enc}`);
@@ -278,6 +292,95 @@ async function renderReelById(ctx: Context, id: string): Promise<void> {
   await sendReelCard(ctx, fixed, "");
 }
 
+const DEFAULT_RULES: PostRules = {
+  timeEnabled: false,
+  gapSeconds: 0,
+  viewEnabled: false,
+  freePosts: 3,
+  perPost: null,
+  nthCount: null,
+  nthTotal: null,
+};
+
+// Evaluate the Post Rules for every target lane independently. Returns the
+// lanes allowed to receive this reel now plus per-lane block reasons.
+async function evaluateReelLanes(
+  reel: ReelItem,
+  cfg: BotConfig,
+  targets: string[]
+): Promise<{ ready: string[]; blocked: { lane: string; reason: string }[] }> {
+  const rules = cfg.postRules;
+  const ready: string[] = [];
+  const blocked: { lane: string; reason: string }[] = [];
+  for (const lane of targets) {
+    const releases = await getLaneReleases(lane);
+    if (rules?.timeEnabled) {
+      const last = releases.length ? releases[releases.length - 1] : undefined;
+      const t = evaluateTimeRule(rules, last?.releasedAt);
+      if (!t.ok) {
+        blocked.push({ lane, reason: t.reason });
+        continue;
+      }
+    }
+    if (rules?.viewEnabled && releases.length > 0) {
+      const recent = releases.slice(
+        -(rules.nthCount && rules.nthCount > 0 ? rules.nthCount : 1)
+      );
+      const views = await fetchViews(
+        lane,
+        recent.map((r) => r.targetMessageId)
+      );
+      let viewReleases = releases;
+      if (views.size > 0) {
+        viewReleases = releases.map((r) =>
+          views.has(r.targetMessageId)
+            ? { ...r, views: views.get(r.targetMessageId) }
+            : r
+        );
+        for (const [mid, v] of views) void updateLaneReleaseViews(lane, mid, v);
+      }
+      const v = evaluateViewRule(rules, viewReleases);
+      if (!v.ok) {
+        blocked.push({ lane, reason: v.reason });
+        continue;
+      }
+    }
+    ready.push(lane);
+  }
+  return { ready, blocked };
+}
+
+// Mark a reel posted + processed, then reply and advance the queue.
+async function finishPostedReel(
+  ctx: Context,
+  reel: ReelItem,
+  result: { ok: boolean; error?: string; firstId?: number; ids?: Record<string, number> },
+  extra?: string
+): Promise<void> {
+  if (!result.ok) {
+    await ctx.reply(`❌ Could not post: ${result.error}`);
+    return;
+  }
+  await updateReel(reel.id, {
+    status: "posted",
+    targetMessageIds: result.ids,
+    targetMessageId: result.firstId,
+  });
+  await markAsProcessed({
+    channelId: reel.channelId,
+    messageId: reel.sourceMessageId,
+    targetMessageIds: result.ids,
+    targetMessageId: result.firstId,
+    originalText: reel.originalText,
+    translatedText: reel.translatedText,
+    englishText: reel.englishText,
+    sourceLang: reel.sourceLang,
+    processedAt: new Date().toISOString(),
+  });
+  await ctx.reply(`✅ Posted to target channel(s).${extra ? `\n${extra}` : ""}`);
+  await showQueue(ctx);
+}
+
 export function registerCallbacks(bot: any): void {
   bot.callbackQuery("menu:main", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
@@ -356,30 +459,50 @@ export function registerCallbacks(bot: any): void {
       await showQueue(ctx);
       return;
     }
-    await ctx.answerCallbackQuery("Posting…").catch(() => {});
-    const result = await publishReelItem(bot as any, reel);
-    if (result.ok) {
-      await updateReel(id, {
-        status: "posted",
-        targetMessageIds: result.ids,
-        targetMessageId: result.firstId,
-      });
-      await markAsProcessed({
-        channelId: reel.channelId,
-        messageId: reel.sourceMessageId,
-        targetMessageIds: result.ids,
-        targetMessageId: result.firstId,
-        originalText: reel.originalText,
-        translatedText: reel.translatedText,
-        englishText: reel.englishText,
-        sourceLang: reel.sourceLang,
-        processedAt: new Date().toISOString(),
-      });
-      await ctx.reply("✅ Posted to target channel(s).");
-      await showQueue(ctx);
-    } else {
-      await ctx.reply(`❌ Could not post: ${result.error}`);
+    await ctx.answerCallbackQuery("Checking post rules…").catch(() => {});
+    const cfg = await getConfig();
+    const targets = await getTargetChannels();
+    const { ready, blocked } = await evaluateReelLanes(reel, cfg, targets);
+    if (ready.length === 0) {
+      const lines = blocked.map((b) => `▪️ ${b.lane}: ${b.reason}`);
+      await ctx.reply(
+        `⛔ Post is on hold by the rules.\n\n${lines.join("\n")}\n\nUse ⚡ Post Now to override (breaking news), or 📅 Schedule a time.`
+      );
+      return;
     }
+    const result =
+      blocked.length > 0
+        ? await publishReelItem(bot as any, reel, { allowedTargets: ready })
+        : await publishReelItem(bot as any, reel);
+    const skipped =
+      blocked.length > 0
+        ? `\nSkipped by rules:\n${blocked.map((b) => `▪️ ${b.lane}: ${b.reason}`).join("\n")}`
+        : "";
+    await finishPostedReel(ctx, reel, result, skipped);
+  });
+
+  bot.callbackQuery(/^reel:postnow:(.+)$/, async (ctx: Context) => {
+    if (!(await requireCanPost(ctx))) return;
+    const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
+    const reel = await getReelById(id);
+    if (!reel) {
+      await ctx.answerCallbackQuery("Post no longer in queue.").catch(() => {});
+      await showQueue(ctx);
+      return;
+    }
+    await ctx.answerCallbackQuery("Posting now…").catch(() => {});
+    const result = await publishReelItem(bot as any, reel);
+    await finishPostedReel(ctx, reel, result);
+  });
+
+  bot.callbackQuery(/^reel:schedule:(.+)$/, async (ctx: Context) => {
+    if (!(await requireCanPost(ctx))) return;
+    const enc = ctx.callbackQuery?.data?.split(":")[2] || "";
+    await setPendingInput(ctx.from!.id, `reel_schedule:${enc}`);
+    await ctx.answerCallbackQuery().catch(() => {});
+    await ctx.reply(
+      "📅 Send a duration from now — examples:\n15min, 1hr, 2h 30min, 1day, 90s (or a plain number of minutes).\nThe post bypasses the rules when it goes out. (/cancel to abort)"
+    );
   });
 
   bot.callbackQuery(/^reel:skip:(.+)$/, async (ctx: Context) => {
@@ -612,6 +735,53 @@ export function registerCallbacks(bot: any): void {
     await safeReply(ctx, `✅ ${role === "owner" ? "Owner" : "Admin"} removed.\n\n${text}`, keyboard);
   });
 
+  bot.callbackQuery("setting:postrules", async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const cfg = await getConfig();
+    const rules = { ...DEFAULT_RULES, ...(cfg.postRules || {}) };
+    const { text, keyboard } = getPostRulesMenu(rules);
+    await safeReply(ctx, text, keyboard);
+  });
+
+  bot.callbackQuery(/^postrule:toggle:(.+)$/, async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const which = ctx.callbackQuery?.data?.split(":")[2] || "";
+    const cfg = await getConfig();
+    const rules = { ...DEFAULT_RULES, ...(cfg.postRules || {}) };
+    if (which === "time") rules.timeEnabled = !rules.timeEnabled;
+    else if (which === "view") rules.viewEnabled = !rules.viewEnabled;
+    else return;
+    await updateConfig({ postRules: rules });
+    const updated = (await getConfig()).postRules || rules;
+    const { text, keyboard } = getPostRulesMenu(updated);
+    await safeReply(ctx, text, keyboard);
+  });
+
+  bot.callbackQuery(/^postrule:gap:(\d+)$/, async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const seconds = Number(ctx.callbackQuery?.data?.split(":")[2]);
+    if (!Number.isInteger(seconds) || seconds <= 0) return;
+    const cfg = await getConfig();
+    const rules = { ...DEFAULT_RULES, ...(cfg.postRules || {}) };
+    rules.gapSeconds = seconds;
+    await updateConfig({ postRules: rules });
+    const updated = (await getConfig()).postRules || rules;
+    const { text, keyboard } = getPostRulesMenu(updated);
+    await safeReply(ctx, `✅ Time gap set to ${formatDuration(seconds)}.\n\n${text}`, keyboard);
+  });
+
+  bot.callbackQuery(/^postrule:(gapcustom|perpost|freeposts|nthcount|nthtotal)$/, async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const kind = ctx.callbackQuery?.data?.split(":")[1] || "";
+    await setPendingInput(ctx.from!.id, `postrule_${kind}`);
+    const { text, keyboard } = getPostRulePrompt(kind);
+    await safeReply(ctx, text, keyboard);
+  });
+
   bot.on("message:text", async (ctx: Context) => {
     const userId = ctx.from?.id;
     if (!userId || !(await canPost(userId))) return;
@@ -644,7 +814,11 @@ export function registerCallbacks(bot: any): void {
     if (text === "/cancel") {
       const state = await getPendingInput(userId);
       await clearPendingInput(userId);
-      if (state?.startsWith("reel_rewrite:") || state?.startsWith("reel_patch:")) {
+      if (
+        state?.startsWith("reel_rewrite:") ||
+        state?.startsWith("reel_patch:") ||
+        state?.startsWith("reel_schedule:")
+      ) {
         const enc = state.split(":").slice(1).join(":");
         const id = decodeReelId(enc);
         const reel = await getReelById(id);
@@ -652,6 +826,13 @@ export function registerCallbacks(bot: any): void {
           await renderReelById(ctx, id);
           return;
         }
+      }
+      if (state?.startsWith("postrule_")) {
+        const cfg = await getConfig();
+        const rules = { ...DEFAULT_RULES, ...(cfg.postRules || {}) };
+        const { text: rulesText, keyboard } = getPostRulesMenu(rules);
+        await ctx.reply(rulesText, { reply_markup: keyboard });
+        return;
       }
       const isOwnerRole = await isOwner(userId);
       const { text: menuText, keyboard } = getMainMenu(isOwnerRole);
@@ -722,6 +903,81 @@ export function registerCallbacks(bot: any): void {
       } else {
         await ctx.reply("📎 Send a photo, video, gif, audio or file, or send /done to finish.");
       }
+      return;
+    }
+
+    if (state.startsWith("reel_schedule:")) {
+      const enc = state.slice("reel_schedule:".length);
+      const id = decodeReelId(enc);
+      const reel = await getReelById(id);
+      if (!reel) {
+        await clearPendingInput(userId);
+        await ctx.reply("❌ Reel not found anymore.");
+        return;
+      }
+      const seconds = parseDuration(text);
+      if (!seconds) {
+        await ctx.reply("❌ Could not understand that duration. Use e.g. 15min, 1hr, 2h 30min, 1day, 90s — or a plain number of minutes.");
+        return;
+      }
+      const when = new Date(Date.now() + seconds * 1000).toISOString();
+      await updateReel(id, { scheduledAt: when });
+      await clearPendingInput(userId);
+      await ctx.reply(
+        `📅 Scheduled in ${formatDuration(seconds)} — ${new Date(when).toLocaleString()}. It will bypass the rules when it posts.`
+      );
+      await renderReelById(ctx, id);
+      return;
+    }
+
+    if (state.startsWith("postrule_")) {
+      if (!(await isOwner(userId))) return;
+      const kind = state.slice("postrule_".length);
+      const cfg = await getConfig();
+      const rules = { ...DEFAULT_RULES, ...(cfg.postRules || {}) };
+      if (kind === "gap") {
+        const seconds = parseDuration(text);
+        if (!seconds) {
+          await ctx.reply("❌ Could not understand that duration. Use e.g. 15min, 1hr, 2h 30min, 1day, 90s — or a plain number of minutes.");
+          return;
+        }
+        rules.gapSeconds = seconds;
+      } else if (kind === "perpost") {
+        const v = parseK(text);
+        if (v == null || v <= 0) {
+          await ctx.reply("❌ Invalid target. Use e.g. 500, 1k, 5k, 10k.");
+          return;
+        }
+        rules.perPost = v;
+      } else if (kind === "freeposts") {
+        const v = parseInt(text, 10);
+        if (!Number.isInteger(v) || v < 0) {
+          await ctx.reply("❌ Invalid number. Use e.g. 0, 3, 5.");
+          return;
+        }
+        rules.freePosts = v;
+      } else if (kind === "nthcount") {
+        const v = parseInt(text, 10);
+        if (!Number.isInteger(v) || v <= 0) {
+          await ctx.reply("❌ Invalid batch size. Use e.g. 3, 5, 10.");
+          return;
+        }
+        rules.nthCount = v;
+      } else if (kind === "nthtotal") {
+        const v = parseK(text);
+        if (v == null || v <= 0) {
+          await ctx.reply("❌ Invalid total. Use e.g. 1k, 5k, 10k.");
+          return;
+        }
+        rules.nthTotal = v;
+      } else {
+        return;
+      }
+      await updateConfig({ postRules: rules });
+      await clearPendingInput(userId);
+      const updated = (await getConfig()).postRules || rules;
+      const { text: menuText, keyboard } = getPostRulesMenu(updated);
+      await ctx.reply(`✅ Post rules updated.\n\n${menuText}`, { reply_markup: keyboard });
       return;
     }
 

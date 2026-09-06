@@ -1,6 +1,97 @@
 import { InlineKeyboard } from "grammy";
+import { PostRules } from "../types";
+import { formatDuration, formatK, TIME_PRESETS } from "../services/postRules";
 
-// Main Menu
+export function getPostRulesMenu(rules: PostRules): { text: string; keyboard: InlineKeyboard } {
+  const viewDesc = rules.viewEnabled
+    ? `🎯 per post: ${formatK(rules.perPost ?? null)}\n` +
+      `🔁 batch: ${rules.nthCount ?? "—"} posts, sum ${formatK(rules.nthTotal ?? null)}\n` +
+      `🆓 free posts first: ${rules.freePosts}`
+    : "disabled";
+
+  const text = [
+    "╔══════════════════════════╗",
+    "║   🕹 POST RULES          ║",
+    "╚══════════════════════════╝",
+    "",
+    "Rules apply per target channel",
+    "independently when a reel is",
+    "posted from the review queue.",
+    "",
+    `⏱ Time Rule: ${rules.timeEnabled ? "✅ ON" : "❌ OFF"}`,
+    `   Gap: ${rules.timeEnabled && rules.gapSeconds > 0 ? formatDuration(rules.gapSeconds) : "—"}`,
+    "",
+    `👁 View Rule: ${rules.viewEnabled ? "✅ ON" : "❌ OFF"}`,
+    viewDesc,
+    "",
+    "⚡ Post Now and 📅 Schedule",
+    "bypass these rules.",
+  ].join("\n");
+
+  const keyboard = new InlineKeyboard()
+    .text(rules.timeEnabled ? "⏱ Time: ✅ ON" : "⏱ Time: ❌ OFF", "postrule:toggle:time")
+    .text(rules.viewEnabled ? "👁 Views: ✅ ON" : "👁 Views: ❌ OFF", "postrule:toggle:view");
+
+  if (rules.timeEnabled) {
+    const presets: string[][] = [];
+    TIME_PRESETS.forEach((p, i) => {
+      const rowIdx = Math.floor(i / 5);
+      if (!presets[rowIdx]) presets[rowIdx] = [];
+      presets[rowIdx].push(p.label);
+    });
+    for (const rowBtns of presets) {
+      keyboard.row();
+      for (const label of rowBtns) {
+        const p = TIME_PRESETS.find((x) => x.label === label)!;
+        keyboard.text(p.seconds === rules.gapSeconds ? `${p.label} ✓` : p.label, `postrule:gap:${p.seconds}`);
+      }
+    }
+    keyboard.row();
+    keyboard.text(
+      rules.gapSeconds && !TIME_PRESETS.some((p) => p.seconds === rules.gapSeconds)
+        ? `🛠 Custom (${formatDuration(rules.gapSeconds)}) ✓`
+        : "🛠 Custom...",
+      "postrule:gapcustom"
+    );
+  }
+
+  if (rules.viewEnabled) {
+    keyboard
+      .row()
+      .text(`🎯 Per post: ${formatK(rules.perPost ?? null)}`, "postrule:perpost")
+      .text(`🆓 Free: ${rules.freePosts}`, "postrule:freeposts")
+      .row()
+      .text(`🔁 Batch: ${rules.nthCount ?? "—"}`, "postrule:nthcount")
+      .text(`Σ Total: ${formatK(rules.nthTotal ?? null)}`, "postrule:nthtotal");
+  }
+
+  keyboard
+    .row()
+    .text("◀️ Back", "menu:settings");
+
+  return { text, keyboard };
+}
+
+export function getPostRulePrompt(kind: string): { text: string; keyboard: InlineKeyboard } {
+  const prompts: Record<string, string> = {
+    gap: "Send the gap duration — examples:\n5m, 15min, 1hr, 2h 30min, 1day, 90s\n(or a plain number of minutes)",
+    perpost: "Send the per-post view target before the next post releases:\n500, 1k, 5k, 10k",
+    freeposts: "Send how many posts release freely (no view check) first:\n0, 3, 5",
+    nthcount: "Send the batch size for the sum-total rule:\n3, 5, 10",
+    nthtotal: "Send the summed view target a batch must reach:\n1k, 5k, 10k",
+  };
+  const text = [
+    "╔══════════════════════════╗",
+    "║   🕹 POST RULES          ║",
+    "╚══════════════════════════╝",
+    "",
+    prompts[kind] || "Enter a value:",
+    "",
+    "Send /cancel to abort.",
+  ].join("\n");
+  const keyboard = new InlineKeyboard().text("❌ Cancel", "setting:postrules");
+  return { text, keyboard };
+}
 export function getMainMenu(isOwnerRole = true): { text: string; keyboard: InlineKeyboard } {
   const header = [
     "╔══════════════════════════╗",
@@ -105,6 +196,7 @@ export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, sig
     .text("🌐 Set Language", "setting:language")
     .row()
     .text("👥 Roles & Access", "setting:roles")
+    .text("🕹 Post Rules", "setting:postrules")
     .row()
     .text("◀️ Back", "menu:main");
 
@@ -190,7 +282,10 @@ export function getReelsHomeMenu(stats: {
     "• Edit ✏️ the text",
     "• Toggle Original vs Translation",
     "• Attach Media 🖼",
-    "• Then Post 📤 or Skip ⏭",
+    "• Post 📤 (applies rules),",
+    "• Post Now ⚡ (override, breaking)",
+    "• Schedule 📅 (timer, not a rule)",
+    "• Or Skip ⏭",
     "• 🔗 opens the source post",
     "",
     "📊 Queue Stats:",

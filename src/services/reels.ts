@@ -1,5 +1,5 @@
 import { Bot } from "grammy";
-import { addReel, getConfig, getReelById, getTargetChannels, updateReel, getQueuedReels } from "./storage";
+import { addReel, getConfig, getReelById, getTargetChannels, updateReel, getQueuedReels, appendLaneRelease } from "./storage";
 import { translateToAmharic } from "./translator";
 import {
   createMonitorClient,
@@ -265,9 +265,14 @@ export async function enqueueReel(input: ReelSourceInput): Promise<boolean> {
   return addReel(item);
 }
 
+// Post a reel to every target channel (or only `allowedTargets`), recording
+// per-lane release history used by the Post Rules timers/view rules.
+// `opts.silentErrors` suppresses the per-lane release logging when a publish is
+// rule-checked (caller decides which lanes actually posted).
 export async function publishReelItem(
   bot: Bot,
-  item: ReelItem
+  item: ReelItem,
+  opts?: { allowedTargets?: string[] }
 ): Promise<{
   ok: boolean;
   error?: string;
@@ -276,8 +281,13 @@ export async function publishReelItem(
 }> {
   try {
     const cfg = await getConfig();
-    const targets = await getTargetChannels();
+    let targets = await getTargetChannels();
     if (!targets.length) return { ok: false, error: "No target channels configured." };
+    if (opts?.allowedTargets?.length) {
+      const allowed = new Set(opts.allowedTargets);
+      targets = targets.filter((t) => allowed.has(t));
+    }
+    if (!targets.length) return { ok: false, error: "No targets selected for this post." };
 
     const content = buildReelCaption(item, cfg);
     const emojiEntities = buildEmojiEntities(content, item.customEmoji);
@@ -314,6 +324,9 @@ export async function publishReelItem(
         }
         const okTargets = Object.keys(ids);
         if (okTargets.length === targets.length) {
+          for (const t of okTargets) {
+            if (Number.isInteger(ids[t])) void appendLaneRelease(t, ids[t]);
+          }
           return { ok: true, ids, firstId };
         }
         targets.splice(
@@ -381,6 +394,7 @@ export async function publishReelItem(
         if (sentId === undefined) continue;
         const chatKey = sent?.chat?.id !== undefined ? String(sent.chat.id) : target;
         ids[chatKey] = sentId;
+        ids[target] = sentId;
         if (firstId === undefined) firstId = sentId;
       } catch (error: any) {
         console.error(`[reels] publish to ${target} failed:`, error?.message || error);
@@ -389,6 +403,9 @@ export async function publishReelItem(
 
     if (Object.keys(ids).length === 0) {
       return { ok: false, error: "Publish to targets failed." };
+    }
+    for (const t of targets) {
+      if (Number.isInteger(ids[t])) void appendLaneRelease(t, ids[t]);
     }
     return { ok: true, ids, firstId };
   } catch (error: any) {

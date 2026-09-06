@@ -18,7 +18,8 @@ import {
   fetchGroupedMedia,
 } from "../src/services/mtproto";
 import { processAndPublish } from "../src/services/publisher";
-import { enqueueReel } from "../src/services/reels";
+import { enqueueReel, publishReelItem } from "../src/services/reels";
+import { getDueScheduledReels } from "../src/services/storage";
 import { cleanContent } from "../src/services/cleaner";
 import { isPromotionalPost } from "../src/services/promo";
 
@@ -207,6 +208,46 @@ export default async function handler(req: any, res: any) {
             channel: ch.username,
             messageId: msg.messageId,
             ok: false,
+            error: String(error?.errorMessage || error?.message || error),
+          });
+        }
+      }
+    }
+
+    // Reels mode: fire any scheduled reels whose time has come. Scheduling
+    // bypasses the Post Rules on purpose (it is an explicit choice of time).
+    if (reelsMode) {
+      const due = await getDueScheduledReels();
+      for (const reel of due) {
+        try {
+          const result = await publishReelItem(bot, reel);
+          if (result.ok) {
+            await updateReel(reel.id, {
+              status: "posted",
+              targetMessageIds: result.ids,
+              targetMessageId: result.firstId,
+            });
+            await markAsProcessed({
+              channelId: reel.channelId,
+              messageId: reel.sourceMessageId,
+              targetMessageIds: result.ids,
+              targetMessageId: result.firstId,
+              originalText: reel.originalText,
+              translatedText: reel.translatedText,
+              englishText: reel.englishText,
+              sourceLang: reel.sourceLang,
+              processedAt: new Date().toISOString(),
+            });
+            results.push({ channel: reel.channelId, messageId: reel.sourceMessageId, ok: true, scheduled: true });
+          } else {
+            results.push({ channel: reel.channelId, messageId: reel.sourceMessageId, ok: false, scheduled: true, error: result.error });
+          }
+        } catch (error: any) {
+          results.push({
+            channel: reel.channelId,
+            messageId: reel.sourceMessageId,
+            ok: false,
+            scheduled: true,
             error: String(error?.errorMessage || error?.message || error),
           });
         }
