@@ -40,6 +40,32 @@ export function createCopyClient(): TelegramClient {
   );
 }
 
+// Shared teleproto client: the server-side copy that powers Post runs on every
+// publish, and each fresh connect costs a ~1-3s handshake. Reuse one per warm
+// instance (recovers automatically on cold start or a dropped socket).
+let sharedCopyClient: TelegramClient | null = null;
+let sharedCopyConnecting: Promise<TelegramClient> | null = null;
+
+export async function getCopyClient(): Promise<TelegramClient> {
+  const c: any = sharedCopyClient;
+  if (c && (c.connected || c.connectionStatus?.connected)) return sharedCopyClient!;
+  if (sharedCopyConnecting) return sharedCopyConnecting;
+  sharedCopyConnecting = (async () => {
+    const client = createCopyClient();
+    await client.connect();
+    sharedCopyClient = client;
+    sharedCopyConnecting = null;
+    return client;
+  })();
+  try {
+    return await sharedCopyConnecting;
+  } catch (err) {
+    sharedCopyClient = null;
+    sharedCopyConnecting = null;
+    throw err;
+  }
+}
+
 function toUsername(input: string): string {
   let u = String(input || "").trim();
   u = u.replace(/^@/, "");
@@ -93,7 +119,7 @@ export async function copyMessagesToTargets(
   req: CopyRequest
 ): Promise<CopyTargetResult[]> {
   const results: CopyTargetResult[] = [];
-  const client = createCopyClient();
+  const client = await getCopyClient();
   try {
     await client.connect();
     const { fromPeer, targetPeers, error: entityError } = await resolveEntities(
@@ -157,9 +183,5 @@ export async function copyMessagesToTargets(
       results.push({ target: t, ok: false, error: String(error?.message || error) });
     }
     return results;
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
   }
 }

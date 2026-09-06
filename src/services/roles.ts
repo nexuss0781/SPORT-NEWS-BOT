@@ -1,6 +1,6 @@
 import { Api } from "teleproto";
 import { config } from "../config";
-import { createCopyClient } from "./copyService";
+import { getCopyClient } from "./copyService";
 import { getConfig, updateConfig } from "./storage";
 
 export type Role = "owner" | "admin";
@@ -94,9 +94,8 @@ export async function resolveUsernameToId(
   const username = normalizeUsername(input);
   if (!username) return { ok: false, error: "No username found. Send something like @username." };
 
-  const client = createCopyClient();
+  const client = await getCopyClient();
   try {
-    await client.connect();
     const res: any = await client.invoke(new Api.contacts.ResolveUsername({ username }));
     const users: any[] = res?.users || [];
     const user = users.find((u: any) => u.className === "User");
@@ -116,9 +115,5 @@ export async function resolveUsernameToId(
       return { ok: false, error: `No Telegram user has "@${username}".` };
     }
     return { ok: false, error: `Could not resolve "@${username}": ${msg}` };
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
   }
 }

@@ -492,8 +492,7 @@ async function postReelSafely(
 
     try {
       if (mode === "rules") {
-        const cfg = await getConfig();
-        const targets = await getTargetChannels();
+        const [cfg, targets] = await Promise.all([getConfig(), getTargetChannels()]);
         const { ready, blocked } = await evaluateReelLanes(reel, cfg, targets);
         if (ready.length === 0) {
           await unclaim();

@@ -49,6 +49,56 @@ export function createMonitorClient(): TelegramClient {
   );
 }
 
+// Shared, lazily-created MTProto client. Re-connecting on every press costs a
+// TCP+TLS+MTProto handshake (~1-3s), so we reuse one live connection for the
+// lifetime of the serverless instance. If the socket dies (or the instance is
+// cold) we transparently create a fresh one. Functions that intentionally want
+// a short-lived client can keep using createMonitorClient() directly.
+let sharedClient: TelegramClient | null = null;
+let sharedConnecting: Promise<TelegramClient> | null = null;
+
+export async function getMonitorClient(): Promise<TelegramClient> {
+  if (sharedClient && sharedClient.connected) return sharedClient;
+  if (sharedConnecting) return sharedConnecting;
+
+  sharedConnecting = (async () => {
+    const client = createMonitorClient();
+    await client.connect();
+    sharedClient = client;
+    sharedConnecting = null;
+    return client;
+  })();
+
+  try {
+    return await sharedConnecting;
+  } catch (err) {
+    sharedClient = null;
+    sharedConnecting = null;
+    throw err;
+  }
+}
+
+export function resetMonitorClient(): void {
+  const c = sharedClient;
+  sharedClient = null;
+  sharedConnecting = null;
+  if (c) {
+    c.disconnect().catch(() => {});
+  }
+}
+
+// Close + forget the shared client only when the caller wants a clean slate.
+export async function shutdownMonitorClient(): Promise<void> {
+  const c = sharedClient;
+  sharedClient = null;
+  sharedConnecting = null;
+  if (c && c.connected) {
+    try {
+      await c.disconnect();
+    } catch {}
+  }
+}
+
 export function classifyMedia(media: any): MediaPayload["kind"] | undefined {
   if (!media) return undefined;
   const c = media.className;

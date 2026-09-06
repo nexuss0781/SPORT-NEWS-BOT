@@ -1,5 +1,5 @@
 import { config } from "../src/config";
-import { createMonitorClient, fetchRawMessage, fetchGroupedMedia, downloadMedia, classifyMedia } from "../src/services/mtproto";
+import { getMonitorClient, fetchRawMessage, fetchGroupedMedia, downloadMedia, classifyMedia } from "../src/services/mtproto";
 
 // Diagnostic endpoint: curl ".../api/diag?key=<secret>&channel=foronlytest&id=114"
 // Reports what the media preview pipeline would do for a given source message.
@@ -16,9 +16,8 @@ export default async function handler(req: any, res: any) {
   const channel = String(req.query?.channel || "foronlytest");
   const id = Number(req.query?.id || 0);
 
-  const client = createMonitorClient();
+  const client = await getMonitorClient();
   try {
-    await client.connect();
     const raw = await fetchRawMessage(client, channel, id);
     if (!raw) {
       res.json({ ok: true, messageId: id, channel, found: false });
@@ -66,9 +65,5 @@ export default async function handler(req: any, res: any) {
     res.json(out);
   } catch (error: any) {
     res.status(500).json({ ok: false, error: String(error?.errorMessage || error?.message || error) });
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
   }
 }

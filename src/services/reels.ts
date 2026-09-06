@@ -2,7 +2,7 @@ import { Bot } from "grammy";
 import { addReel, getConfig, getReelById, getTargetChannels, updateReel, getQueuedReels, appendLaneRelease } from "./storage";
 import { translateToAmharic } from "./translator";
 import {
-  createMonitorClient,
+  getMonitorClient,
   downloadMedia,
   fetchRawMessage,
   fetchGroupedMedia,
@@ -23,9 +23,8 @@ export async function resolveSourceMessageIds(
   groupedId?: bigint | string
 ): Promise<number[]> {
   if (!groupedId) return [baseMessageId];
-  const client = createMonitorClient();
+  const client = await getMonitorClient();
   try {
-    await client.connect();
     const msgs = await fetchGroupedMedia(client, channelId, baseMessageId, groupedId);
     const ids = msgs
       .map((m: any) => m.id as number)
@@ -35,10 +34,6 @@ export async function resolveSourceMessageIds(
   } catch (error: any) {
     console.error("[reels] resolve source ids failed:", error?.message || error);
     return [];
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
   }
 }
 
@@ -47,19 +42,14 @@ export async function downloadSourceMedia(
   channelId: string,
   sourceMessageId: number
 ): Promise<MediaPayload | undefined> {
-  const client = createMonitorClient();
+  const client = await getMonitorClient();
   try {
-    await client.connect();
     const raw = await fetchRawMessage(client, channelId, sourceMessageId);
     if (!raw) return undefined;
     return await downloadMedia(client, raw);
   } catch (error: any) {
     console.error("[reels] source media download failed:", error?.message || error);
     return undefined;
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
   }
 }
 
@@ -80,9 +70,8 @@ export async function ensureReelMeta(reel: ReelItem): Promise<void> {
   if (last && now - last < META_RETRY_MS) return;
   metaThrottle.set(reel.id, now);
 
-  const client = createMonitorClient();
+  const client = await getMonitorClient();
   try {
-    await client.connect();
     const raw = await fetchRawMessage(client, reel.channelId, reel.sourceMessageId);
     if (!raw) return;
     const meta = await resolveChannelMeta(client, raw, reel.sourceMessageId);
@@ -101,10 +90,6 @@ export async function ensureReelMeta(reel: ReelItem): Promise<void> {
     await updateReel(reel.id, updates);
   } catch (error: any) {
     console.error("[reels] metadata repair failed:", error?.message || error);
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
   }
 }
 
@@ -114,9 +99,8 @@ export async function downloadGroupedMedia(
   sourceMessageId: number,
   groupedId: bigint | string
 ): Promise<MediaPayload[]> {
-  const client = createMonitorClient();
+  const client = await getMonitorClient();
   try {
-    await client.connect();
     const msgs = await fetchGroupedMedia(client, channelId, sourceMessageId, groupedId);
     const payloads: MediaPayload[] = [];
     for (const m of msgs) {
@@ -127,10 +111,6 @@ export async function downloadGroupedMedia(
   } catch (error: any) {
     console.error("[reels] grouped media download failed:", error?.message || error);
     return [];
-  } finally {
-    try {
-      await client.disconnect();
-    } catch {}
   }
 }
 

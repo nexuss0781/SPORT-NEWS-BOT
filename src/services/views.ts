@@ -1,6 +1,6 @@
 import { TelegramClient } from "telegram";
 import { Api } from "telegram/tl";
-import { createMonitorClient, normalizeUsername } from "./mtproto";
+import { getMonitorClient, normalizeUsername } from "./mtproto";
 
 // Fetch current view counts for published messages in a target channel.
 // Returns a map id -> views. Messages the session cannot see are skipped.
@@ -13,10 +13,8 @@ export async function fetchViews(
   const unique = [...new Set(messageIds)].filter((id) => Number.isInteger(id));
   if (!clean || unique.length === 0) return out;
 
-  let client: TelegramClient | null = null;
   try {
-    client = createMonitorClient();
-    await client.connect();
+    const client: TelegramClient = await getMonitorClient();
     const peer = await client.getInputEntity(clean);
     void peer;
     // Batch: GetMessages accepts an array of ids (one message per id).
@@ -38,12 +36,6 @@ export async function fetchViews(
       `[views] fetchViews failed for ${clean}:`,
       error?.errorMessage || error?.message || error
     );
-  } finally {
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {}
-    }
   }
   return out;
 }

@@ -11,7 +11,7 @@ import {
   markAsProcessed,
 } from "../src/services/storage";
 import {
-  createMonitorClient,
+  getMonitorClient,
   fetchRecentMessages,
   resolveChannelMeta,
   downloadMedia,
@@ -44,7 +44,6 @@ export default async function handler(req: any, res: any) {
   }
 
   const results: any[] = [];
-  let client: any = null;
 
   try {
     const channels = await getChannels();
@@ -55,8 +54,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    client = createMonitorClient();
-    await client.connect();
+    const client = await getMonitorClient();
 
     const cfg = await getConfig();
     const reelsMode = !!cfg.reelsMode;
@@ -284,11 +282,5 @@ export default async function handler(req: any, res: any) {
   } catch (error: any) {
     console.error("Monitor error:", error);
     res.status(500).json({ ok: false, error: String(error?.errorMessage || error?.message || error) });
-  } finally {
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {}
-    }
   }
 }
