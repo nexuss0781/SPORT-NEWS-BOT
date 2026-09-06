@@ -343,11 +343,13 @@ export function getSetLanguagePrompt(): { text: string; keyboard: InlineKeyboard
 
 // Roles & Access Menu
 export function getRolesMenu(data: {
-  owners: { id: number; name: string }[];
-  admins: { id: number; name: string }[];
+  owners: { id: number; name: string; removable?: boolean }[];
+  admins: { id: number; name: string; removable?: boolean }[];
 }): { text: string; keyboard: InlineKeyboard } {
   let ownerLines = "";
-  for (const o of data.owners) ownerLines += `👑 ${o.name} (${o.id})\n`;
+  for (const o of data.owners) {
+    ownerLines += `👑 ${o.name}${o.removable === false ? " (operator)" : ""} (${o.id})\n`;
+  }
   let adminLines = "";
   for (const a of data.admins) adminLines += `📰 ${a.name} (${a.id})\n`;
 
@@ -372,9 +374,11 @@ export function getRolesMenu(data: {
 
   const keyboard = new InlineKeyboard();
   for (const o of data.owners) {
+    if (o.removable === false) continue;
     keyboard.text(`👑 ${o.name} (${o.id})`, `setting:role:remove:owner:${o.id}`).row();
   }
   for (const a of data.admins) {
+    if (a.removable === false) continue;
     keyboard.text(`📰 ${a.name} (${a.id})`, `setting:role:remove:admin:${a.id}`).row();
   }
   keyboard

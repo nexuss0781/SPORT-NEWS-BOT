@@ -8,6 +8,7 @@ export type Role = "owner" | "admin";
 export interface RoleMember {
   id: number;
   name: string;
+  removable?: boolean;
 }
 
 // Owner = the operator (env ADMIN_IDS, immutable) + any DB-stored owners.
@@ -36,12 +37,13 @@ export async function getRoleMembers(role: Role): Promise<RoleMember[]> {
   const names = cfg.roleNames || {};
   const out: RoleMember[] = [];
   for (const id of ids) {
-    out.push({ id, name: `@${names[String(id)] || id}` });
+    const isOperator = config.adminIds.includes(id);
+    out.push({ id, name: `@${names[String(id)] || id}`, removable: !isOperator });
   }
   if (role === "owner") {
     // Operator env ids always count as owners, show them at the end.
     for (const id of config.adminIds) {
-      if (!ids.includes(id)) out.push({ id, name: `@${names[String(id)] || id}` });
+      if (!ids.includes(id)) out.push({ id, name: `@${names[String(id)] || id}`, removable: false });
     }
   }
   return out;
@@ -50,6 +52,8 @@ export async function getRoleMembers(role: Role): Promise<RoleMember[]> {
 export async function addRoleMember(role: Role, id: number, name?: string): Promise<boolean> {
   const cfg = await getConfig();
   const ids = role === "owner" ? cfg.owners || [] : cfg.admins || [];
+  // The operator (env ADMIN_IDS) is a permanent owner; no need to re-add.
+  if (config.adminIds.includes(id)) return false;
   if (ids.includes(id)) return false;
   const roleNames = { ...(cfg.roleNames || {}) };
   if (name) roleNames[String(id)] = name.replace(/^@/, "");
