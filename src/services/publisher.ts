@@ -51,13 +51,18 @@ function buildPostContent(
   return content;
 }
 
-function toBuffer(value: Buffer | Uint8Array | ArrayBuffer): Buffer {
+function toBuffer(value: Buffer | Uint8Array | ArrayBuffer | any): Buffer {
   if (Buffer.isBuffer(value)) return value;
   if (value instanceof ArrayBuffer) return Buffer.from(value);
   if (ArrayBuffer.isView(value)) {
     return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
   }
-  throw new Error("Unsupported media value");
+  // JSON storage round-trips Buffer -> { type: "Buffer", data: number[] }
+  if (value && value.type === "Buffer" && Array.isArray(value.data)) {
+    return Buffer.from(value.data);
+  }
+  const actual = value?.constructor?.name || typeof value;
+  throw new Error(`Unsupported media value (${actual})`);
 }
 
 function mimeExt(mime?: string): string | undefined {

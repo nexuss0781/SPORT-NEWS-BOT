@@ -117,12 +117,22 @@ export async function copyMessagesToTargets(
           fromPeer,
           dropMediaCaptions: Boolean(req.caption),
         });
-        const first = Array.isArray(copied) ? copied[0] : copied;
+        // copyMessages -> forwardMessages returns [ _getResponseMessage(...) ];
+        // that inner value may itself be an array of Api.Message (albums) or a
+        // single Api.Message. Flatten to the first valid message with a numeric id.
+        const flat = (Array.isArray(copied) ? copied : [copied])
+          .flat()
+          .filter((m: any) => m?.id != null);
+        const first = flat[0];
         if (!first) {
           results.push({ target, ok: false, error: "copy returned no message" });
           continue;
         }
-        const copiedId = first.id;
+        const copiedId = Number(first.id);
+        if (!Number.isInteger(copiedId)) {
+          results.push({ target, ok: false, error: "copy returned invalid message id" });
+          continue;
+        }
         if (req.caption) {
           const entities = buildMtpEmojiEntities(req.caption, req.customEmoji || []);
           await client.editMessage(targetPeer, {

@@ -154,9 +154,22 @@ async function pickPreviewMedia(reel: ReelItem): Promise<MediaPayload | undefine
 // Telegram renders them as the right content type.
 function toBotInput(media: MediaPayload): string | InputFile {
   if (typeof media.value === "string") return media.value;
-  const buf = Buffer.isBuffer(media.value)
-    ? media.value
-    : Buffer.from(media.value as any);
+  let buf: Buffer;
+  if (Buffer.isBuffer(media.value)) {
+    buf = media.value;
+  } else if (
+    media.value &&
+    (media.value as any).type === "Buffer" &&
+    Array.isArray((media.value as any).data)
+  ) {
+    buf = Buffer.from((media.value as any).data);
+  } else if (media.value instanceof ArrayBuffer) {
+    buf = Buffer.from(media.value);
+  } else if (ArrayBuffer.isView(media.value)) {
+    buf = Buffer.from(media.value.buffer, media.value.byteOffset, media.value.byteLength);
+  } else {
+    buf = Buffer.from(media.value as any);
+  }
   return new InputFile(buf, media.fileName || "preview");
 }
 
