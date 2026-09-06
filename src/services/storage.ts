@@ -222,8 +222,21 @@ export async function getReels(): Promise<ReelItem[]> {
 
 export async function getQueuedReels(): Promise<ReelItem[]> {
   const all = await getReels();
+  const now = Date.now();
   return all
-    .filter((r) => r.status === "queued")
+    .filter((r) => {
+      if (r.status === "queued") return true;
+      // Recover reels that got stuck mid-posting (function crashed): treat a
+      // stale "posting" claim as queued again.
+      if (
+        r.status === "posting" &&
+        r.postingAt &&
+        now - new Date(r.postingAt).getTime() > 3 * 60 * 1000
+      ) {
+        return true;
+      }
+      return false;
+    })
     .sort(
       (a, b) =>
         new Date(a.queuedAt).getTime() - new Date(b.queuedAt).getTime()
@@ -238,7 +251,10 @@ export async function getDueScheduledReels(): Promise<ReelItem[]> {
   return all
     .filter(
       (r) =>
-        r.status === "queued" &&
+        (r.status === "queued" ||
+          (r.status === "posting" &&
+            r.postingAt &&
+            now - new Date(r.postingAt).getTime() > 3 * 60 * 1000)) &&
         r.scheduledAt &&
         new Date(r.scheduledAt).getTime() <= now
     )

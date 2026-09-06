@@ -56,9 +56,10 @@ export interface ReelItem {
   // Last preview file_id sent to the review chat, so re-renders don't hit MTProto.
   previewFileId?: string;
   previewKind?: string;
-  status: "queued" | "posted" | "skipped";
+  status: "queued" | "posting" | "posted" | "skipped";
   queuedAt: string;
   scheduledAt?: string;
+  postingAt?: string;
   targetMessageIds?: Record<string, number>;
   targetMessageId?: number;
 }

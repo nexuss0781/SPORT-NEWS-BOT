@@ -32,6 +32,7 @@ import {
   getReelStats,
   updateReel,
   markAsProcessed,
+  isProcessed,
   getLaneReleases,
   updateLaneReleaseViews,
   getTargetChannels,
@@ -395,7 +396,135 @@ async function evaluateReelLanes(
   return { ready, blocked };
 }
 
-// Mark a reel posted + processed, then reply and advance the queue.
+// Serialize actions per reel so a double-click (same or different button) can
+// never run the action twice. Within one warm instance this fully blocks
+// duplicates; across instances the "posting" claim + status guard back it up.
+const reelLocks = new Map<string, Promise<unknown>>();
+
+async function withReelLock<T>(
+  id: string,
+  fn: () => Promise<T>
+): Promise<T | undefined> {
+  const existing = reelLocks.get(id);
+  if (existing) {
+    await existing.catch(() => {});
+    return undefined; // first press already handled this reel
+  }
+  let resolveFn!: (v: T) => void;
+  let rejectFn!: (e: unknown) => void;
+  const p = new Promise<T>((res, rej) => {
+    resolveFn = res;
+    rejectFn = rej;
+  });
+  reelLocks.set(id, p);
+  try {
+    const value = await fn();
+    resolveFn(value);
+    return value;
+  } catch (error) {
+    rejectFn(error);
+    throw error;
+  } finally {
+    if (reelLocks.get(id) === p) reelLocks.delete(id);
+  }
+}
+
+const POSTING_STALE_MS = 3 * 60 * 1000; // a "posting" claim older than this is considered dead
+
+// Guarantees a reel action only runs once. Returns the reel to act on, or
+// null when the action already happened (or is still in-flight).
+async function ensureReelActionable(
+  ctx: Context,
+  id: string
+): Promise<ReelItem | null> {
+  const reel = await getReelById(id);
+  if (!reel) {
+    await ctx.answerCallbackQuery("No longer in queue.").catch(() => {});
+    return null;
+  }
+  if (reel.status === "posting") {
+    const stale =
+      !reel.postingAt ||
+      Date.now() - new Date(reel.postingAt).getTime() > POSTING_STALE_MS;
+    if (!stale) {
+      await ctx.answerCallbackQuery("⏳ Already in progress…").catch(() => {});
+      return null;
+    }
+    await updateReel(id, { status: "queued", postingAt: undefined });
+  } else if (reel.status !== "queued") {
+    await ctx.answerCallbackQuery("✅ Already handled.").catch(() => {});
+    return null;
+  }
+  if (await isProcessed(reel.channelId, reel.sourceMessageId)) {
+    await ctx.answerCallbackQuery("✅ Already posted.").catch(() => {});
+    return null;
+  }
+  return reel;
+}
+
+// Shared logic for 📤 Post (rules) and ⚡ Post Now (override), both celebrated
+// with an atomic claim so repeated clicks never publish the reel twice.
+async function postReelSafely(
+  ctx: Context,
+  id: string,
+  mode: "rules" | "now",
+  botApi: any
+): Promise<void> {
+  if (!(await requireCanPost(ctx))) return;
+  const result = await withReelLock(id, async () => {
+    const reel = await ensureReelActionable(ctx, id);
+    if (!reel) return "handled";
+    await ctx.answerCallbackQuery("Working…").catch(() => {});
+    await updateReel(id, {
+      status: "posting",
+      postingAt: new Date().toISOString(),
+    });
+
+    const unclaim = async () => {
+      await updateReel(id, { status: "queued", postingAt: undefined }).catch(() => {});
+    };
+
+    try {
+      if (mode === "rules") {
+        const cfg = await getConfig();
+        const targets = await getTargetChannels();
+        const { ready, blocked } = await evaluateReelLanes(reel, cfg, targets);
+        if (ready.length === 0) {
+          await unclaim();
+          const lines = blocked.map((b) => `▪️ ${b.lane}: ${b.reason}`);
+          await ctx.reply(
+            `⛔ Post is on hold by the rules.\n\n${lines.join("\n")}\n\nUse ⚡ Post Now to override (breaking news), or 📅 Schedule a time.`
+          );
+          return "blocked";
+        }
+        const publishResult =
+          blocked.length > 0
+            ? await publishReelItem(botApi, reel, { allowedTargets: ready })
+            : await publishReelItem(botApi, reel);
+        const skipped =
+          blocked.length > 0
+            ? `\nSkipped by rules:\n${blocked.map((b) => `▪️ ${b.lane}: ${b.reason}`).join("\n")}`
+            : "";
+        if (!publishResult.ok) await unclaim();
+        await finishPostedReel(ctx, reel, publishResult, skipped);
+        return "posted";
+      }
+      const publishResult = await publishReelItem(botApi, reel);
+      if (!publishResult.ok) await unclaim();
+      await finishPostedReel(ctx, reel, publishResult);
+      return "posted";
+    } catch (error) {
+      await unclaim();
+      throw error;
+    }
+  });
+
+  if (result === undefined) {
+    // A first press already handled it (same-instance duplicate).
+    await ctx.answerCallbackQuery("✅ Already handled.").catch(() => {});
+  }
+}
+  // Mark a reel posted + processed, then reply and advance the queue.
 async function finishPostedReel(
   ctx: Context,
   reel: ReelItem,
@@ -496,48 +625,13 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery(/^reel:post:(.+)$/, async (ctx: Context) => {
-    if (!(await requireCanPost(ctx))) return;
     const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
-    const reel = await getReelById(id);
-    if (!reel) {
-      await ctx.answerCallbackQuery("Post no longer in queue.").catch(() => {});
-      await showQueue(ctx);
-      return;
-    }
-    await ctx.answerCallbackQuery("Checking post rules…").catch(() => {});
-    const cfg = await getConfig();
-    const targets = await getTargetChannels();
-    const { ready, blocked } = await evaluateReelLanes(reel, cfg, targets);
-    if (ready.length === 0) {
-      const lines = blocked.map((b) => `▪️ ${b.lane}: ${b.reason}`);
-      await ctx.reply(
-        `⛔ Post is on hold by the rules.\n\n${lines.join("\n")}\n\nUse ⚡ Post Now to override (breaking news), or 📅 Schedule a time.`
-      );
-      return;
-    }
-    const result =
-      blocked.length > 0
-        ? await publishReelItem(bot as any, reel, { allowedTargets: ready })
-        : await publishReelItem(bot as any, reel);
-    const skipped =
-      blocked.length > 0
-        ? `\nSkipped by rules:\n${blocked.map((b) => `▪️ ${b.lane}: ${b.reason}`).join("\n")}`
-        : "";
-    await finishPostedReel(ctx, reel, result, skipped);
+    await postReelSafely(ctx, id, "rules", bot as any);
   });
 
   bot.callbackQuery(/^reel:postnow:(.+)$/, async (ctx: Context) => {
-    if (!(await requireCanPost(ctx))) return;
     const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
-    const reel = await getReelById(id);
-    if (!reel) {
-      await ctx.answerCallbackQuery("Post no longer in queue.").catch(() => {});
-      await showQueue(ctx);
-      return;
-    }
-    await ctx.answerCallbackQuery("Posting now…").catch(() => {});
-    const result = await publishReelItem(bot as any, reel);
-    await finishPostedReel(ctx, reel, result);
+    await postReelSafely(ctx, id, "now", bot as any);
   });
 
   bot.callbackQuery(/^reel:schedule:(.+)$/, async (ctx: Context) => {
@@ -553,21 +647,34 @@ export function registerCallbacks(bot: any): void {
   bot.callbackQuery(/^reel:skip:(.+)$/, async (ctx: Context) => {
     if (!(await requireCanPost(ctx))) return;
     const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
-    await updateReel(id, { status: "skipped" });
-    await ctx.answerCallbackQuery("Skipped ⏭").catch(() => {});
-    await showQueue(ctx);
+    const handled = await withReelLock(id, async () => {
+      const reel = await ensureReelActionable(ctx, id);
+      if (!reel) return false;
+      await updateReel(id, { status: "skipped", scheduledAt: undefined });
+      await ctx.answerCallbackQuery("Skipped ⏭").catch(() => {});
+      await showQueue(ctx);
+      return true;
+    });
+    if (handled === undefined) {
+      await ctx.answerCallbackQuery("✅ Already handled.").catch(() => {});
+    }
   });
 
   bot.callbackQuery(/^reel:toggle:(.+)$/, async (ctx: Context) => {
     if (!(await requireCanPost(ctx))) return;
     const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
-    const reel = await getReelById(id);
-    if (reel) {
+    const handled = await withReelLock(id, async () => {
+      const reel = await ensureReelActionable(ctx, id);
+      if (!reel) return false;
       const mode = reel.mode === "translated" ? "original" : "translated";
       await updateReel(id, { mode });
+      await ctx.answerCallbackQuery().catch(() => {});
+      await renderReelById(ctx, id);
+      return true;
+    });
+    if (handled === undefined) {
+      await ctx.answerCallbackQuery("⏳ Already in progress…").catch(() => {});
     }
-    await ctx.answerCallbackQuery().catch(() => {});
-    await renderReelById(ctx, id);
   });
 
   bot.callbackQuery(/^reel:rewrite:(.+)$/, async (ctx: Context) => {

@@ -233,6 +233,16 @@ export default async function handler(req: any, res: any) {
       const due = await getDueScheduledReels();
       for (const reel of due) {
         try {
+          // Claim this reel atomically so an overlapping cron tick can't
+          // double-publish it while we're posting.
+          const claimed = await getReelById(reel.id);
+          if (!claimed || (claimed.status !== "queued" && claimed.status !== "posting")) {
+            continue;
+          }
+          await updateReel(reel.id, {
+            status: "posting",
+            postingAt: new Date().toISOString(),
+          });
           const result = await publishReelItem(bot, reel);
           if (result.ok) {
             await updateReel(reel.id, {
@@ -253,9 +263,12 @@ export default async function handler(req: any, res: any) {
             });
             results.push({ channel: reel.channelId, messageId: reel.sourceMessageId, ok: true, scheduled: true });
           } else {
+            // Leave it queued so the next cron tick retries.
+            await updateReel(reel.id, { status: "queued", postingAt: undefined }).catch(() => {});
             results.push({ channel: reel.channelId, messageId: reel.sourceMessageId, ok: false, scheduled: true, error: result.error });
           }
         } catch (error: any) {
+          await updateReel(reel.id, { status: "queued", postingAt: undefined }).catch(() => {});
           results.push({
             channel: reel.channelId,
             messageId: reel.sourceMessageId,
