@@ -50,6 +50,9 @@ export interface ReelItem {
   sourceGroupedMedia?: MediaPayload[];
   customEmoji: CustomEmoji[];
   addedMedia: MediaPayload[];
+  // Last preview file_id sent to the review chat, so re-renders don't hit MTProto.
+  previewFileId?: string;
+  previewKind?: string;
   status: "queued" | "posted" | "skipped";
   queuedAt: string;
   scheduledAt?: string;

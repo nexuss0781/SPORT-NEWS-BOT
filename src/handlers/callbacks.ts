@@ -180,13 +180,52 @@ function buildReelKeyboard(
 // Latest sent review-card message per admin so re-renders can clean up.
 const reviewCards = new Map<number, number>();
 
-// Pick the media to preview on the review card (admin-added first, else source).
+// Pick the media to preview on the review card (admin-added first, else a
+// cached Bot API file_id, else re-download from the source via MTProto).
 async function pickPreviewMedia(reel: ReelItem): Promise<MediaPayload | undefined> {
   if (reel.addedMedia.length > 0) {
     return reel.addedMedia[0];
   }
+  if (reel.previewFileId && reel.previewKind) {
+    return { kind: reel.previewKind as MediaPayload["kind"], value: reel.previewFileId };
+  }
+  if (reel.sourceGroupedMedia && reel.sourceGroupedMedia.length > 0) {
+    return reel.sourceGroupedMedia[0];
+  }
   if (!reel.sourceMedia) return undefined;
   return await downloadSourceMedia(reel.channelId, reel.sourceMessageId);
+}
+
+// Extract a reusable Bot API file_id from a sent media message.
+function extractFileId(sent: any, kind: string): string | undefined {
+  if (!sent) return undefined;
+  if (kind === "photo") return sent.photo?.find?.((p: any) => p.file_id)?.file_id || sent.photo?.[0]?.file_id;
+  return sent?.[kind]?.file_id;
+}
+
+async function sendReelMedia(
+  ctx: Context,
+  media: MediaPayload,
+  caption: string,
+  keyboard: InlineKeyboard
+): Promise<any> {
+  const input = toBotInput(media);
+  const baseOpts: Record<string, any> = { caption, reply_markup: keyboard };
+  if (media.kind === "photo") {
+    const opts: Record<string, any> = { ...baseOpts };
+    if (media.width) opts.width = media.width;
+    if (media.height) opts.height = media.height;
+    return await ctx.replyWithPhoto(input, opts);
+  }
+  if (media.kind === "video") {
+    const opts: Record<string, any> = { ...baseOpts, supports_streaming: true };
+    if (media.width) opts.width = media.width;
+    if (media.height) opts.height = media.height;
+    return await ctx.replyWithVideo(input, opts);
+  }
+  if (media.kind === "animation") return await ctx.replyWithAnimation(input, baseOpts);
+  if (media.kind === "audio") return await ctx.replyWithAudio(input, baseOpts);
+  return await ctx.replyWithPhoto(input, baseOpts);
 }
 
 // Turn a MediaPayload value into something grammY can send (file_id string or
@@ -225,26 +264,32 @@ async function sendReelCard(
   const userId = ctx.from?.id;
 
   if (hasPreview && media) {
-    // Send an actual media preview with the caption + buttons.
-    const input = toBotInput(media);
     let sent: any;
-    const baseOpts: Record<string, any> = { caption, reply_markup: keyboard };
-    if (media.kind === "photo") {
-      sent = await ctx.replyWithPhoto(input, baseOpts);
-    } else if (media.kind === "video") {
-      const videoOpts: Record<string, any> = { ...baseOpts, supports_streaming: true };
-      if (media.width) videoOpts.width = media.width;
-      if (media.height) videoOpts.height = media.height;
-      sent = await ctx.replyWithVideo(input, videoOpts);
-    } else if (media.kind === "animation") {
-      sent = await ctx.replyWithAnimation(input, baseOpts);
-    } else if (media.kind === "audio") {
-      sent = await ctx.replyWithAudio(input, baseOpts);
-    } else {
-      const photoOpts: Record<string, any> = { ...baseOpts };
-      if (media.width) photoOpts.width = media.width;
-      if (media.height) photoOpts.height = media.height;
-      sent = await ctx.replyWithPhoto(input, photoOpts);
+    try {
+      sent = await sendReelMedia(ctx, media, caption, keyboard);
+    } catch (error: any) {
+      // A cached file_id can go stale (e.g. review msg cleaned up): drop it
+      // and re-download the source media once.
+      if (typeof media.value === "string") {
+        await updateReel(reel.id, { previewFileId: undefined, previewKind: undefined });
+        const fresh = await downloadSourceMedia(reel.channelId, reel.sourceMessageId);
+        if (!fresh) {
+          await safeReply(ctx, caption, keyboard);
+          return;
+        }
+        sent = await sendReelMedia(ctx, fresh, caption, keyboard);
+      } else {
+        throw error;
+      }
+    }
+
+    // Snapshot the uploaded preview as a reusable file_id so every following
+    // button press skips the MTProto download + re-upload entirely.
+    if (typeof media.value !== "string") {
+      const fid = extractFileId(sent, media.kind);
+      if (fid) {
+        await updateReel(reel.id, { previewFileId: fid, previewKind: media.kind });
+      }
     }
 
     if (userId !== undefined && sent?.message_id !== undefined) {
