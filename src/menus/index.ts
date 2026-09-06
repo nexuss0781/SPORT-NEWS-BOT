@@ -1,26 +1,40 @@
 import { InlineKeyboard } from "grammy";
 
 // Main Menu
-export function getMainMenu(): { text: string; keyboard: InlineKeyboard } {
-  const text = [
+export function getMainMenu(isOwnerRole = true): { text: string; keyboard: InlineKeyboard } {
+  const header = [
     "╔══════════════════════════╗",
     "║   🤖 SPORT NEWS BOT     ║",
     "║   Amharic Translation    ║",
     "╚══════════════════════════╝",
     "",
-    "Welcome to the control panel.",
-    "Select an option below:",
   ].join("\n");
 
-  const keyboard = new InlineKeyboard()
-    .text("📺 Channels", "menu:channels")
+  const keyboard = new InlineKeyboard();
+  if (isOwnerRole) {
+    const text = header + [
+      "Welcome to the control panel.",
+      "Select an option below:",
+    ].join("\n");
+    keyboard
+      .text("📺 Channels", "menu:channels")
+      .text("🎞 Reels", "menu:reels")
+      .row()
+      .text("⚙️ Settings", "menu:settings")
+      .text("📊 Status", "menu:status")
+      .row()
+      .text("❓ Help", "menu:help");
+    return { text, keyboard };
+  }
+
+  const text = header + [
+    "Welcome! You have journalistic",
+    "access — review and post news.",
+  ].join("\n");
+  keyboard
     .text("🎞 Reels", "menu:reels")
     .row()
-    .text("⚙️ Settings", "menu:settings")
-    .text("📊 Status", "menu:status")
-    .row()
     .text("❓ Help", "menu:help");
-
   return { text, keyboard };
 }
 
@@ -89,6 +103,8 @@ export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, sig
     .row()
     .text("✍️ Change Signature", "setting:signature")
     .text("🌐 Set Language", "setting:language")
+    .row()
+    .text("👥 Roles & Access", "setting:roles")
     .row()
     .text("◀️ Back", "menu:main");
 
@@ -321,6 +337,74 @@ export function getSetLanguagePrompt(): { text: string; keyboard: InlineKeyboard
     .text("🇵🇹 Portuguese", "setting:setlang:pt")
     .row()
     .text("❌ Cancel", "menu:settings");
+
+  return { text, keyboard };
+}
+
+// Roles & Access Menu
+export function getRolesMenu(data: {
+  owners: { id: number; name: string }[];
+  admins: { id: number; name: string }[];
+}): { text: string; keyboard: InlineKeyboard } {
+  let ownerLines = "";
+  for (const o of data.owners) ownerLines += `👑 ${o.name} (${o.id})\n`;
+  let adminLines = "";
+  for (const a of data.admins) adminLines += `📰 ${a.name} (${a.id})\n`;
+
+  const text = [
+    "╔══════════════════════════╗",
+    "║   👥 ROLES & ACCESS      ║",
+    "╚══════════════════════════╝",
+    "",
+    "👑 Owners — full control:",
+    "settings, channels, roles,",
+    "and publishing.",
+    (data.owners.length ? ownerLines : "(none beyond operator)").trimEnd(),
+    "",
+    "📰 Admins (Journalists) —",
+    "review & post the news queue",
+    "only: publish, skip, edit,",
+    "toggle, attach media.",
+    (data.admins.length ? adminLines : "(none)").trimEnd(),
+    "",
+    "Add users by @username.",
+  ].join("\n");
+
+  const keyboard = new InlineKeyboard();
+  for (const o of data.owners) {
+    keyboard.text(`👑 ${o.name} (${o.id})`, `setting:role:remove:owner:${o.id}`).row();
+  }
+  for (const a of data.admins) {
+    keyboard.text(`📰 ${a.name} (${a.id})`, `setting:role:remove:admin:${a.id}`).row();
+  }
+  keyboard
+    .text("👑 ➕ Add Owner", "setting:role:add:owner")
+    .text("📰 ➕ Add Admin", "setting:role:add:admin")
+    .row()
+    .text("◀️ Back", "menu:settings");
+
+  return { text, keyboard };
+}
+
+// Add Role Prompt
+export function getAddRolePrompt(role: "owner" | "admin"): { text: string; keyboard: InlineKeyboard } {
+  const roleLabel = role === "owner" ? "👑 OWNER (full control)" : "📰 ADMIN / JOURNALIST (posts news)";
+  const text = [
+    "╔══════════════════════════╗",
+    `║   ➕ ADD ${role === "owner" ? "OWNER" : "ADMIN"}         ║`,
+    "╚══════════════════════════╝",
+    "",
+    `New role: ${roleLabel}`,
+    "",
+    "Send the user's @username:",
+    "",
+    "Example: @sport_journalist",
+    "",
+    "Or send /cancel to go back.",
+  ].join("\n");
+
+  const keyboard = new InlineKeyboard()
+    .text("❌ Cancel", "setting:roles");
 
   return { text, keyboard };
 }

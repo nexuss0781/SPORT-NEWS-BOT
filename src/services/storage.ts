@@ -19,6 +19,9 @@ const DEFAULT_CONFIG: BotConfig = {
   translatedLang: "am",
   showEnglish: false,
   showOriginal: false,
+  owners: [],
+  admins: [],
+  roleNames: {},
 };
 
 export async function getConfig(): Promise<BotConfig> {
@@ -26,6 +29,17 @@ export async function getConfig(): Promise<BotConfig> {
   // Backfill default signature for existing configs
   if (!cfg.signature) {
     const migrated = { ...cfg, signature: DEFAULT_SIGNATURE };
+    await dbSet(KEY_CONFIG, migrated);
+    return migrated;
+  }
+  // Backfill role fields for configs created before roles existed
+  if (!Array.isArray(cfg.owners) || !Array.isArray(cfg.admins) || !cfg.roleNames) {
+    const migrated = {
+      ...cfg,
+      owners: Array.isArray(cfg.owners) ? cfg.owners : [],
+      admins: Array.isArray(cfg.admins) ? cfg.admins : [],
+      roleNames: cfg.roleNames || {},
+    };
     await dbSet(KEY_CONFIG, migrated);
     return migrated;
   }

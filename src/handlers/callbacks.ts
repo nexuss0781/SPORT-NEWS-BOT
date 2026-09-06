@@ -12,6 +12,8 @@ import {
   getSetSignaturePrompt,
   getSetLanguagePrompt,
   getReelsHomeMenu,
+  getRolesMenu,
+  getAddRolePrompt,
 } from "../menus/index";
 import {
   getChannels,
@@ -38,9 +40,33 @@ import {
   ensureReelMeta,
   downloadSourceMedia,
 } from "../services/reels";
-import { isAdmin } from "../config";
+import {
+  isOwner,
+  isAdminRole,
+  canPost,
+  getRoleMembers,
+  addRoleMember,
+  removeRoleMember,
+  resolveUsernameToId,
+} from "../services/roles";
 import { toChannelUrl } from "../services/mtproto";
 import { MediaPayload, ReelItem } from "../types";
+
+async function requireOwner(ctx: Context): Promise<boolean> {
+  if (!(await isOwner(ctx.from?.id))) {
+    await ctx.reply("⛔ You are not authorized.");
+    return false;
+  }
+  return true;
+}
+
+async function requireCanPost(ctx: Context): Promise<boolean> {
+  if (!(await canPost(ctx.from?.id))) {
+    await ctx.reply("⛔ You are not authorized.");
+    return false;
+  }
+  return true;
+}
 
 async function addSourceChannel(username: string, addedBy: number): Promise<boolean> {
   const channels = await getChannels();
@@ -255,30 +281,22 @@ async function renderReelById(ctx: Context, id: string): Promise<void> {
 export function registerCallbacks(bot: any): void {
   bot.callbackQuery("menu:main", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
-    const { text, keyboard } = getMainMenu();
+    if (!(await requireCanPost(ctx))) return;
+    const isOwnerRole = await isOwner(ctx.from?.id);
+    const { text, keyboard } = getMainMenu(isOwnerRole);
     await safeReply(ctx, text, keyboard);
   });
 
   bot.callbackQuery("menu:channels", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const { text, keyboard } = getChannelsMenu();
     await safeReply(ctx, text, keyboard);
   });
 
   bot.callbackQuery("menu:settings", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
     const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal, cfg.signature, cfg.reelsMode);
     await safeReply(ctx, text, keyboard);
@@ -286,10 +304,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("menu:status", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
     const channels = await getChannels();
     const queued = (await getQueuedReels()).length;
@@ -307,20 +322,14 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("menu:help", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const { text, keyboard } = getHelpMenu();
     await safeReply(ctx, text, keyboard);
   });
 
   bot.callbackQuery("menu:reels", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const stats = await getReelStats();
     const { text, keyboard } = getReelsHomeMenu(stats);
     await safeReply(ctx, text, keyboard);
@@ -328,10 +337,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("menu:reels:start", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     await showQueue(ctx);
   });
 
@@ -342,10 +348,7 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery(/^reel:post:(.+)$/, async (ctx: Context) => {
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
     const reel = await getReelById(id);
     if (!reel) {
@@ -380,10 +383,7 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery(/^reel:skip:(.+)$/, async (ctx: Context) => {
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
     await updateReel(id, { status: "skipped" });
     await ctx.answerCallbackQuery("Skipped ⏭").catch(() => {});
@@ -391,10 +391,7 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery(/^reel:toggle:(.+)$/, async (ctx: Context) => {
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const id = decodeReelId(ctx.callbackQuery?.data?.split(":")[2] || "");
     const reel = await getReelById(id);
     if (reel) {
@@ -406,10 +403,7 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery(/^reel:rewrite:(.+)$/, async (ctx: Context) => {
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const enc = ctx.callbackQuery?.data?.split(":")[2] || "";
     await setPendingInput(ctx.from!.id, `reel_rewrite:${enc}`);
     await ctx.answerCallbackQuery().catch(() => {});
@@ -417,10 +411,7 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery(/^reel:patch:(.+)$/, async (ctx: Context) => {
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const enc = ctx.callbackQuery?.data?.split(":")[2] || "";
     await setPendingInput(ctx.from!.id, `reel_patch:${enc}`);
     await ctx.answerCallbackQuery().catch(() => {});
@@ -428,10 +419,7 @@ export function registerCallbacks(bot: any): void {
   });
 
   bot.callbackQuery(/^reel:addmedia:(.+)$/, async (ctx: Context) => {
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireCanPost(ctx))) return;
     const enc = ctx.callbackQuery?.data?.split(":")[2] || "";
     await setPendingInput(ctx.from!.id, `reel_addmedia:${enc}`);
     await ctx.answerCallbackQuery().catch(() => {});
@@ -440,10 +428,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("channel:add", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const { text, keyboard } = getAddChannelPrompt();
     await safeReply(ctx, text, keyboard);
     await setPendingInput(ctx.from!.id, "addsource");
@@ -451,10 +436,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("channel:remove", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const channels = (await getChannels()).map((c) => c.username);
     const { text, keyboard } = getRemoveChannelPrompt(channels);
     await safeReply(ctx, text, keyboard);
@@ -462,10 +444,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery(/^channel:confirmremove:(.+)$/, async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const channelUsername = ctx.callbackQuery?.data?.split(":")[2] || "";
     const { text, keyboard } = getConfirmDialog(
       `Remove ${channelUsername} from monitored channels?`,
@@ -477,10 +456,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery(/^channel:doremove:(.+)$/, async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const channelUsername = ctx.callbackQuery?.data?.split(":")[2] || "";
     await removeChannel(channelUsername);
     const { text, keyboard } = getChannelsMenu();
@@ -489,10 +465,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("channel:list", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const channels = await getChannels();
     let text: string;
     if (channels.length === 0) {
@@ -523,10 +496,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("channel:target", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const { text, keyboard } = getSetTargetPrompt();
     await safeReply(ctx, text, keyboard);
     await setPendingInput(ctx.from!.id, "addtarget");
@@ -534,10 +504,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("setting:toggle:english", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
     await updateConfig({ showEnglish: !cfg.showEnglish });
     const updated = await getConfig();
@@ -547,10 +514,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("setting:toggle:original", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
     await updateConfig({ showOriginal: !cfg.showOriginal });
     const updated = await getConfig();
@@ -560,10 +524,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("setting:toggle:reels", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
     await updateConfig({ reelsMode: !cfg.reelsMode });
     const updated = await getConfig();
@@ -577,10 +538,7 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("setting:signature", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
     const { text, keyboard } = getSetSignaturePrompt(cfg.signature);
     await safeReply(ctx, text, keyboard);
@@ -589,20 +547,14 @@ export function registerCallbacks(bot: any): void {
 
   bot.callbackQuery("setting:language", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const { text, keyboard } = getSetLanguagePrompt();
     await safeReply(ctx, text, keyboard);
   });
 
   bot.callbackQuery(/^setting:setlang:(.+)$/, async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
-    if (!isAdmin(ctx.from?.id)) {
-      await ctx.reply("⛔ You are not authorized.");
-      return;
-    }
+    if (!(await requireOwner(ctx))) return;
     const lang = ctx.callbackQuery?.data?.split(":")[2] || "am";
     await updateConfig({ translatedLang: lang });
     const cfg = await getConfig();
@@ -614,9 +566,55 @@ export function registerCallbacks(bot: any): void {
     await safeReply(ctx, `✅ Language set to ${langNames[lang] || lang}.\n\n${text}`, keyboard);
   });
 
+  bot.callbackQuery("setting:roles", async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const owners = await getRoleMembers("owner");
+    const admins = await getRoleMembers("admin");
+    const { text, keyboard } = getRolesMenu({ owners, admins });
+    await safeReply(ctx, text, keyboard);
+  });
+
+  bot.callbackQuery(/^setting:role:add:(.+)$/, async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const role = (ctx.callbackQuery?.data?.split(":")[3] || "") as "owner" | "admin";
+    if (role !== "owner" && role !== "admin") return;
+    const { text, keyboard } = getAddRolePrompt(role);
+    await safeReply(ctx, text, keyboard);
+    await setPendingInput(ctx.from!.id, `addrole:${role}`);
+  });
+
+  bot.callbackQuery(/^setting:role:remove:(.+):(.+)$/, async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const [role, rawId] = ctx.callbackQuery?.data?.replace(/^setting:role:remove:/, "").split(":") || [];
+    const id = Number(rawId);
+    if ((role !== "owner" && role !== "admin") || !Number.isInteger(id)) return;
+    const { text, keyboard } = getConfirmDialog(
+      `Remove this ${role === "owner" ? "👑 owner" : "📰 admin"} (${id})?`,
+      `setting:role:doremove:${role}:${id}`,
+      "setting:roles"
+    );
+    await safeReply(ctx, text, keyboard);
+  });
+
+  bot.callbackQuery(/^setting:role:doremove:(.+):(.+)$/, async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    const [role, rawId] = ctx.callbackQuery?.data?.replace(/^setting:role:doremove:/, "").split(":") || [];
+    const id = Number(rawId);
+    if ((role !== "owner" && role !== "admin") || !Number.isInteger(id)) return;
+    await removeRoleMember(role, id);
+    const owners = await getRoleMembers("owner");
+    const admins = await getRoleMembers("admin");
+    const { text, keyboard } = getRolesMenu({ owners, admins });
+    await safeReply(ctx, `✅ ${role === "owner" ? "Owner" : "Admin"} removed.\n\n${text}`, keyboard);
+  });
+
   bot.on("message:text", async (ctx: Context) => {
     const userId = ctx.from?.id;
-    if (!userId || !isAdmin(userId)) return;
+    if (!userId || !(await canPost(userId))) return;
 
     const text = (ctx.message?.text || "").trim();
     if (!text) return;
@@ -625,6 +623,7 @@ export function registerCallbacks(bot: any): void {
 
     // No pending flow: a bare @username (or https://t.me/...) adds a source channel
     if (!state) {
+      if (!(await isOwner(userId))) return;
       const match = text.match(/^(@?https?:\/\/t\.me\/)?[A-Za-z0-9_]{3,}$/i);
       if (match) {
         const username = text.match(/^@[A-Za-z0-9_]{3,}$/)
@@ -654,7 +653,8 @@ export function registerCallbacks(bot: any): void {
           return;
         }
       }
-      const { text: menuText, keyboard } = getMainMenu();
+      const isOwnerRole = await isOwner(userId);
+      const { text: menuText, keyboard } = getMainMenu(isOwnerRole);
       await ctx.reply(menuText, { reply_markup: keyboard });
       return;
     }
@@ -727,6 +727,7 @@ export function registerCallbacks(bot: any): void {
 
     switch (state) {
       case "addsource": {
+        if (!(await isOwner(userId))) return;
         const usernames = parseChannels(text);
         if (usernames.length === 0) {
           await ctx.reply("⚠️ No valid channels found. Send usernames like: @sky_sports, @united");
@@ -751,6 +752,7 @@ export function registerCallbacks(bot: any): void {
       }
       case "addtarget":
       case "settarget": {
+        if (!(await isOwner(userId))) return;
         const usernames = parseTargets(text);
         if (usernames.length === 0) {
           await ctx.reply("⚠️ No valid channels found. Send usernames like: @sport_news, @sport_news2");
@@ -764,6 +766,7 @@ export function registerCallbacks(bot: any): void {
         break;
       }
       case "setsignature": {
+        if (!(await isOwner(userId))) return;
         await updateConfig({ signature: text });
         await clearPendingInput(userId);
         const cfg = await getConfig();
@@ -772,12 +775,34 @@ export function registerCallbacks(bot: any): void {
         break;
       }
     }
+
+    if (state.startsWith("addrole:")) {
+      if (!(await isOwner(userId))) return;
+      const role = state.slice("addrole:".length) as "owner" | "admin";
+      if (role !== "owner" && role !== "admin") return;
+      const result = await resolveUsernameToId(text);
+      if (!result.ok) {
+        await ctx.reply(`❌ ${result.error}`);
+        return;
+      }
+      const roleLabel = role === "owner" ? "👑 owner" : "📰 admin";
+      const added = await addRoleMember(role, result.id, result.username || result.name);
+      if (!added) {
+        await ctx.reply(`ℹ️ ${result.name} is already a ${roleLabel}.`);
+        return;
+      }
+      await clearPendingInput(userId);
+      const owners = await getRoleMembers("owner");
+      const admins = await getRoleMembers("admin");
+      const { text: menuText, keyboard } = getRolesMenu({ owners, admins });
+      await ctx.reply(`✅ ${result.name} is now a ${roleLabel}.\n\n${menuText}`, { reply_markup: keyboard });
+    }
   });
 
-  // Capture media/files sent by the admin while in "Add Media" reel state
+  // Capture media/files sent by an authorized reviewer while in "Add Media" reel state
   bot.on("message", async (ctx: Context) => {
     const userId = ctx.from?.id;
-    if (!userId || !isAdmin(userId)) return;
+    if (!userId || !(await canPost(userId))) return;
     const message = ctx.message;
     if (!message) return;
 

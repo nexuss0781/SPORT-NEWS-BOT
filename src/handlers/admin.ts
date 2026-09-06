@@ -1,5 +1,5 @@
 import { Context } from "grammy";
-import { isAdmin } from "../config";
+import { isOwner } from "../services/roles";
 import {
   getChannels,
   addChannel,
@@ -11,12 +11,14 @@ import { toChannelUrl } from "../services/mtproto";
 import { Channel } from "../types";
 
 export function adminOnly(ctx: Context, next: () => Promise<void>): Promise<void> {
-  const userId = ctx.from?.id;
-  if (!userId || !isAdmin(userId)) {
-    ctx.reply("⛔ You are not authorized to use this command.");
-    return Promise.resolve();
-  }
-  return next();
+  return (async () => {
+    const userId = ctx.from?.id;
+    if (!userId || !(await isOwner(userId))) {
+      await ctx.reply("⛔ You are not authorized to use this command.");
+      return;
+    }
+    await next();
+  })();
 }
 
 export function registerAdminCommands(bot: any): void {

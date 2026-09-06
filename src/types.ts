@@ -13,6 +13,9 @@ export interface BotConfig {
   showEnglish: boolean;
   showOriginal: boolean;
   reelsMode?: boolean;
+  owners?: number[];
+  admins?: number[];
+  roleNames?: Record<string, string>;
 }
 
 export interface CustomEmoji {

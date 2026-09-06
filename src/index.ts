@@ -11,6 +11,7 @@ import {
 } from "./services/storage";
 import { processAndPublish } from "./services/publisher";
 import { enqueueReel, extractMediaPayloadFromMessage } from "./services/reels";
+import { isOwner, canPost } from "./services/roles";
 import { toChannelUrl } from "./services/mtproto";
 import { cleanContent } from "./services/cleaner";
 import { getMainMenu } from "./menus/index";
@@ -62,7 +63,13 @@ export function createBot(): Bot {
 
   // Handle /menu command to show interactive menu
   bot.command("menu", async (ctx) => {
-    const { text, keyboard } = getMainMenu();
+    const userId = ctx.from?.id;
+    if (!(await canPost(userId))) {
+      await ctx.reply("⛔ You are not authorized.");
+      return;
+    }
+    const isOwnerRole = await isOwner(userId);
+    const { text, keyboard } = getMainMenu(isOwnerRole);
     await ctx.reply(text, { reply_markup: keyboard });
   });
 
