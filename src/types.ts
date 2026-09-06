@@ -50,6 +50,9 @@ export interface ReelItem {
   sourceGroupedMedia?: MediaPayload[];
   customEmoji: CustomEmoji[];
   addedMedia: MediaPayload[];
+  // Small pre-downloaded single-media preview (set by the monitor) so review
+  // cards render without touching MTProto on every button press.
+  previewMedia?: MediaPayload;
   // Last preview file_id sent to the review chat, so re-renders don't hit MTProto.
   previewFileId?: string;
   previewKind?: string;

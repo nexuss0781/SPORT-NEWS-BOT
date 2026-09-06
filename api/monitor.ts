@@ -152,6 +152,19 @@ export default async function handler(req: any, res: any) {
               if (reel) {
                 await updateReel(reel.id, { sourceGroupedMedia: groupedMedia });
               }
+            } else if (msg.hasMedia) {
+              // Pre-download single-media previews (small photos only) so the
+              // review card renders instantly when the reviewer taps a button.
+              const single = await downloadMedia(client, msg.raw);
+              const size = (single?.value as any)?.byteLength ?? (single?.value as any)?.length ?? 0;
+              if (single?.kind === "photo" && size > 0 && size <= 400 * 1024) {
+                const reelId = `${ch.username}:${msg.messageId}`;
+                const reel = await getReelById(reelId);
+                if (reel) {
+                  await updateReel(reel.id, { previewMedia: single });
+                  results.push({ channel: ch.username, messageId: msg.messageId, ok: true, previewCached: true });
+                }
+              }
             }
           } else {
             // Albums post as a single grouped media message; other items are

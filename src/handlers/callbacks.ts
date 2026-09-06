@@ -180,11 +180,15 @@ function buildReelKeyboard(
 // Latest sent review-card message per admin so re-renders can clean up.
 const reviewCards = new Map<number, number>();
 
-// Pick the media to preview on the review card (admin-added first, else a
-// cached Bot API file_id, else re-download from the source via MTProto).
+// Pick the media to preview on the review card. Everything here is cheap:
+// admin-added or pre-cached media (no MTProto). A live re-download from the
+// source is the last resort and can be slow.
 async function pickPreviewMedia(reel: ReelItem): Promise<MediaPayload | undefined> {
   if (reel.addedMedia.length > 0) {
     return reel.addedMedia[0];
+  }
+  if (reel.previewMedia) {
+    return reel.previewMedia;
   }
   if (reel.previewFileId && reel.previewKind) {
     return { kind: reel.previewKind as MediaPayload["kind"], value: reel.previewFileId };
@@ -268,19 +272,15 @@ async function sendReelCard(
     try {
       sent = await sendReelMedia(ctx, media, caption, keyboard);
     } catch (error: any) {
-      // A cached file_id can go stale (e.g. review msg cleaned up): drop it
-      // and re-download the source media once.
-      if (typeof media.value === "string") {
-        await updateReel(reel.id, { previewFileId: undefined, previewKind: undefined });
-        const fresh = await downloadSourceMedia(reel.channelId, reel.sourceMessageId);
-        if (!fresh) {
-          await safeReply(ctx, caption, keyboard);
-          return;
+      // Any preview send failure (stale file_id, live-download timeout…) must
+      // degrade to a text card rather than 500ing the webhook.
+      try {
+        if (typeof media.value === "string") {
+          await updateReel(reel.id, { previewFileId: undefined, previewKind: undefined });
         }
-        sent = await sendReelMedia(ctx, fresh, caption, keyboard);
-      } else {
-        throw error;
-      }
+        await safeReply(ctx, caption, keyboard);
+      } catch {}
+      return;
     }
 
     // Snapshot the uploaded preview as a reusable file_id so every following
