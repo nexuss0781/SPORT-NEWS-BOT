@@ -8,6 +8,7 @@ import {
   getConfig,
   isProcessed,
   getProcessedPostByTargetMessage,
+  markAsProcessed,
 } from "./services/storage";
 import { processAndPublish } from "./services/publisher";
 import { enqueueReel, extractMediaPayloadFromMessage } from "./services/reels";
@@ -15,6 +16,7 @@ import { isOwner, canPost } from "./services/roles";
 import { toChannelUrl } from "./services/mtproto";
 import { cleanContent } from "./services/cleaner";
 import { getMainMenu } from "./menus/index";
+import { isPromotionalPost } from "./services/promo";
 
 export function createBot(): Bot {
   const bot = new Bot(config.botToken, {
@@ -172,6 +174,24 @@ async function handleChannelPost(ctx: Context, isEdited = false): Promise<void> 
 
   // Check if already processed
   if (await isProcessed(channelId, messageId)) return;
+
+  // Ignore promotional posts that carry inline buttons linking out
+  // (e.g. redirect to another channel or a site).
+  if (isPromotionalPost(message)) {
+    try {
+      await markAsProcessed({
+        channelId,
+        messageId,
+        originalText: "",
+        translatedText: "",
+        englishText: "",
+        sourceLang: "en",
+        processedAt: new Date().toISOString(),
+      });
+    } catch {}
+    console.log(`[webhook] skipped promotional post: ${channelId} ${messageId}`);
+    return;
+  }
 
   // Extract text content
   let text = "";

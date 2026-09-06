@@ -20,6 +20,7 @@ import {
 import { processAndPublish } from "../src/services/publisher";
 import { enqueueReel } from "../src/services/reels";
 import { cleanContent } from "../src/services/cleaner";
+import { isPromotionalPost } from "../src/services/promo";
 
 // Light-weight bot instance just for posting to the target channel
 const bot = new Bot(config.botToken);
@@ -66,6 +67,38 @@ export default async function handler(req: any, res: any) {
       for (const msg of messages) {
         if (await isProcessed(ch.username, msg.messageId)) continue;
         if (now - msg.date > LOOKBACK_SECONDS) continue;
+
+        if (msg.hasInlineLink || (msg.raw && isPromotionalPost(msg.raw))) {
+          await markAsProcessed({
+            channelId: ch.username,
+            messageId: msg.messageId,
+            originalText: cleanContent(msg.text),
+            translatedText: cleanContent(msg.text),
+            englishText: cleanContent(msg.text),
+            sourceLang: "en",
+            processedAt: new Date().toISOString(),
+          });
+          results.push({ channel: ch.username, messageId: msg.messageId, ok: true, skipped: "promotional (inline button)" });
+          continue;
+        }
+
+        // Promo buttons may sit on any album member; if so skip the whole group.
+        if (msg.raw?.groupedId) {
+          const group = await fetchGroupedMedia(client, ch.username, msg.messageId, msg.raw.groupedId);
+          if (group.some((m: any) => isPromotionalPost(m))) {
+            await markAsProcessed({
+              channelId: ch.username,
+              messageId: msg.messageId,
+              originalText: cleanContent(msg.text),
+              translatedText: cleanContent(msg.text),
+              englishText: cleanContent(msg.text),
+              sourceLang: "en",
+              processedAt: new Date().toISOString(),
+            });
+            results.push({ channel: ch.username, messageId: msg.messageId, ok: true, skipped: "promotional album (inline button)" });
+            continue;
+          }
+        }
 
         const cleaned = cleanContent(msg.text);
         if (!cleaned && !msg.hasMedia) continue;

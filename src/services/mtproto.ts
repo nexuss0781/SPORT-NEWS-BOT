@@ -3,12 +3,14 @@ import { StringSession } from "telegram/sessions";
 import { Api } from "telegram/tl";
 import { config } from "../config";
 import { MediaPayload } from "./publisher";
+import { hasInlineLinkButtons } from "./promo";
 
 export interface MonitorMessage {
   messageId: number;
   text: string;
   date: number;
   hasMedia: boolean;
+  hasInlineLink?: boolean;
   raw?: any;
   groupedId?: bigint;
   groupedMessages?: MonitorMessage[];
@@ -126,11 +128,13 @@ function toMessage(m: any): MonitorMessage | undefined {
     Boolean(m.media && m.media.className !== "MessageMediaEmpty");
   // Include media posts even when they have no caption text
   if (!m.message && !hasMedia) return undefined;
+  const hasInlineLink = hasInlineLinkButtons(m);
   return {
     messageId: m.id,
     text: String(m.message || "").trim(),
     date: m.date,
     hasMedia,
+    hasInlineLink,
     raw: hasMedia ? m : undefined,
     groupedId: m.groupedId,
   };
