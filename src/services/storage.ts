@@ -11,6 +11,11 @@ const KEY_PENDING = "pending";
 const KEY_REELS = "reels";
 const KEY_LANE_RELEASES = "lane_releases";
 
+// Tiny TTL cache for getConfig so rapid button presses skip repeated DB reads.
+let configCache: BotConfig | null = null;
+let configCacheTime = 0;
+const CONFIG_TTL_MS = 20_000;
+
 // Bot Config
 const DEFAULT_SIGNATURE = "SHARE ⬅️\n🤳@Ethio_Utd ✅";
 
@@ -36,11 +41,15 @@ const DEFAULT_CONFIG: BotConfig = {
 };
 
 export async function getConfig(): Promise<BotConfig> {
+  const now = Date.now();
+  if (configCache && now - configCacheTime < CONFIG_TTL_MS) return { ...configCache };
+
   const cfg = (await dbGet<BotConfig>(KEY_CONFIG)) || DEFAULT_CONFIG;
   // Backfill default signature for existing configs
   if (!cfg.signature) {
     const migrated = { ...cfg, signature: DEFAULT_SIGNATURE };
     await dbSet(KEY_CONFIG, migrated);
+    configCache = migrated; configCacheTime = now;
     return migrated;
   }
   // Backfill role fields for configs created before roles existed
@@ -52,20 +61,24 @@ export async function getConfig(): Promise<BotConfig> {
       roleNames: cfg.roleNames || {},
     };
     await dbSet(KEY_CONFIG, migrated);
+    configCache = migrated; configCacheTime = now;
     return migrated;
   }
   // Backfill post rules
   if (!cfg.postRules) {
     const migrated = { ...cfg, postRules: DEFAULT_CONFIG.postRules };
     await dbSet(KEY_CONFIG, migrated);
+    configCache = migrated; configCacheTime = now;
     return migrated;
   }
   // Migrate legacy single targetChannel into targetChannels
   if (cfg.targetChannel && (!cfg.targetChannels || cfg.targetChannels.length === 0)) {
     const migrated = { ...cfg, targetChannels: [cfg.targetChannel] };
     await dbSet(KEY_CONFIG, migrated);
+    configCache = migrated; configCacheTime = now;
     return migrated;
   }
+  configCache = cfg; configCacheTime = now;
   return cfg;
 }
 
@@ -79,6 +92,7 @@ export async function updateConfig(updates: Partial<BotConfig>): Promise<BotConf
     updated.targetChannel = updated.targetChannels.length > 0 ? updated.targetChannels[0] : null;
   }
   await dbSet(KEY_CONFIG, updated);
+  configCache = updated; configCacheTime = Date.now();
   return updated;
 }
 

@@ -64,11 +64,21 @@ export async function downloadSourceMedia(
 }
 
 // Check the post's own metadata and repair missing/broken channel + source link
-// data on queued items before they are shown.
+// data on queued items before they are shown. This opens an MTProto connection,
+// so it is throttled to at most one attempt per reel every 10 minutes to keep
+// button presses fast.
+const metaThrottle = new Map<string, number>();
+const META_RETRY_MS = 10 * 60 * 1000;
+
 export async function ensureReelMeta(reel: ReelItem): Promise<void> {
   const hasValidLink = !!reel.sourceLink && reel.sourceLink.startsWith("http");
   const hasValidChannel = !!reel.channelTitle && !reel.channelId.startsWith("@");
   if (hasValidLink && hasValidChannel) return;
+
+  const now = Date.now();
+  const last = metaThrottle.get(reel.id);
+  if (last && now - last < META_RETRY_MS) return;
+  metaThrottle.set(reel.id, now);
 
   const client = createMonitorClient();
   try {

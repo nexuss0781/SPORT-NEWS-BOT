@@ -1,12 +1,14 @@
 {
   "functions": {
     "api/bot.ts": {
-      "memory": 256,
-      "maxDuration": 60
+      "memory": 512,
+      "maxDuration": 60,
+      "regions": ["iad1"]
     },
     "api/monitor.ts": {
-      "memory": 512,
-      "maxDuration": 60
+      "memory": 1024,
+      "maxDuration": 60,
+      "regions": ["iad1"]
     }
   },
   "rewrites": [
