@@ -160,7 +160,7 @@ export function getChannelsMenu(): { text: string; keyboard: InlineKeyboard } {
 }
 
 // Settings Menu
-export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, signature: string, reelsMode = false): { text: string; keyboard: InlineKeyboard } {
+export function getSettingsMenu(signature: string, reelsMode = false): { text: string; keyboard: InlineKeyboard } {
   const text = [
     "╔══════════════════════════╗",
     "║   ⚙️ BOT SETTINGS        ║",
@@ -168,28 +168,17 @@ export function getSettingsMenu(showEnglish: boolean, showOriginal: boolean, sig
     "",
     `${signature ? `✍️ Signature:\n${signature}` : "✍️ Signature: Not set"}`,
     "",
-    `🇬🇧 English Display:  ${showEnglish ? "✅ ON" : "❌ OFF"}`,
-    `📝 Original Display: ${showOriginal ? "✅ ON" : "❌ OFF"}`,
+    "📄 Reference Text: Always ON (auto-detected)",
     `🎞 Reels Mode:       ${reelsMode ? "✅ ON (manual queue)" : "❌ OFF (auto-post)"}`,
     "",
     "Settings:",
   ].join("\n");
 
-  const englishBtn = showEnglish
-    ? "🇬🇧 English: ✅ ON"
-    : "🇬🇧 English: ❌ OFF";
-  const originalBtn = showOriginal
-    ? "📝 Original: ✅ ON"
-    : "📝 Original: ❌ OFF";
   const reelsBtn = reelsMode
     ? "🎞 Reels: ✅ ON"
     : "🎞 Reels: ❌ OFF";
 
   const keyboard = new InlineKeyboard()
-    .text(englishBtn, "setting:toggle:english")
-    .row()
-    .text(originalBtn, "setting:toggle:original")
-    .row()
     .text(reelsBtn, "setting:toggle:reels")
     .row()
     .text("✍️ Change Signature", "setting:signature")
@@ -208,8 +197,6 @@ export function getStatusMenu(data: {
   channels: number;
   target: string[];
   signature: string;
-  showEnglish: boolean;
-  showOriginal: boolean;
   reelsEnabled: boolean;
   reelsQueued: number;
 }): { text: string; keyboard: InlineKeyboard } {
@@ -222,8 +209,6 @@ export function getStatusMenu(data: {
     `📺 Sources: ${data.channels} channels`,
     `📤 Targets: ${targets}`,
     `✍️ Signature: ${data.signature || "Not set"}`,
-    `🇬🇧 English: ${data.showEnglish ? "ON" : "OFF"}`,
-    `📝 Original: ${data.showOriginal ? "ON" : "OFF"}`,
     `🎞 Reels: ${data.reelsEnabled ? "ON (manual)" : "OFF (auto)"} • Queue: ${data.reelsQueued}`,
   ].join("\n");
 
@@ -250,11 +235,9 @@ export function getHelpMenu(): { text: string; keyboard: InlineKeyboard } {
     "   /addchannel @channel",
     "   /removechannel @channel",
     "   /listchannels",
-    "   /settarget @channel",
-    "   /setsignature text",
-    "   /toggleenglish",
-    "   /toggleoriginal",
-    "   /status",
+"   /settarget @channel",
+      "   /setsignature text",
+      "   /status",
   ].join("\n");
 
   const keyboard = new InlineKeyboard()

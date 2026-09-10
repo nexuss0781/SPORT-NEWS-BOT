@@ -34,14 +34,12 @@ function buildPostContent(
 
   let content = "";
 
-  if (cfg.showEnglish && sourceLang !== "en") {
-    content += `🇬🇧 English:\n${english}\n\n`;
-  }
-
-  if (sourceLang === "en" && cfg.showOriginal) {
+  // Reference text is always included, auto-detected by language: English block
+  // for non-English sources, Original block for English sources.
+  if (sourceLang === "en") {
     content += `📝 Original:\n${originalText}\n\n🇪🇹 Translation:\n${amharic}`;
   } else {
-    content += amharic;
+    content += `🇬🇧 English:\n${english}\n\n${amharic}`;
   }
 
   if (cfg.signature) {

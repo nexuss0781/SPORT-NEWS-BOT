@@ -51,8 +51,6 @@ export function registerStartCommands(bot: any): void {
       "   /listchannels",
       "   /settarget @channel",
       "   /setsignature text",
-      "   /toggleenglish",
-      "   /toggleoriginal",
       "   /status",
       "   /menu - Open menu",
     ].join("\n");

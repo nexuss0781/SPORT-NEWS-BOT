@@ -189,12 +189,7 @@ export function buildReelCaption(item: ReelItem, cfg: BotConfig): string {
     content = item.originalText.trim();
   } else {
     const parts: string[] = [];
-    if (
-      cfg.showEnglish &&
-      item.sourceLang &&
-      item.sourceLang !== "en" &&
-      item.englishText
-    ) {
+    if (item.sourceLang && item.sourceLang !== "en" && item.englishText) {
       parts.push(`🇬🇧 English:\n${item.englishText}\n`);
     }
     parts.push(item.translatedText.trim());

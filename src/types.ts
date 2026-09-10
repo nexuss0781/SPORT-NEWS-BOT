@@ -20,8 +20,6 @@ export interface BotConfig {
   targetChannels: string[];
   signature: string;
   translatedLang: string;
-  showEnglish: boolean;
-  showOriginal: boolean;
   reelsMode?: boolean;
   owners?: number[];
   admins?: number[];

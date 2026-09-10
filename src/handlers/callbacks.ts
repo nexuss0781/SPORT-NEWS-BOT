@@ -581,7 +581,7 @@ export function registerCallbacks(bot: any): void {
     await ctx.answerCallbackQuery().catch(() => {});
     if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
-    const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal, cfg.signature, cfg.reelsMode);
+    const { text, keyboard } = getSettingsMenu(cfg.signature, cfg.reelsMode);
     await safeReply(ctx, text, keyboard);
   });
 
@@ -595,8 +595,6 @@ export function registerCallbacks(bot: any): void {
       channels: channels.length,
       target: cfg.targetChannels,
       signature: cfg.signature,
-      showEnglish: cfg.showEnglish,
-      showOriginal: cfg.showOriginal,
       reelsEnabled: !!cfg.reelsMode,
       reelsQueued: queued,
     });
@@ -783,33 +781,13 @@ export function registerCallbacks(bot: any): void {
     await setPendingInput(ctx.from!.id, "addtarget");
   });
 
-  bot.callbackQuery("setting:toggle:english", async (ctx: Context) => {
-    await ctx.answerCallbackQuery().catch(() => {});
-    if (!(await requireOwner(ctx))) return;
-    const cfg = await getConfig();
-    await updateConfig({ showEnglish: !cfg.showEnglish });
-    const updated = await getConfig();
-    const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal, updated.signature, updated.reelsMode);
-    await safeReply(ctx, text, keyboard);
-  });
-
-  bot.callbackQuery("setting:toggle:original", async (ctx: Context) => {
-    await ctx.answerCallbackQuery().catch(() => {});
-    if (!(await requireOwner(ctx))) return;
-    const cfg = await getConfig();
-    await updateConfig({ showOriginal: !cfg.showOriginal });
-    const updated = await getConfig();
-    const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal, updated.signature, updated.reelsMode);
-    await safeReply(ctx, text, keyboard);
-  });
-
   bot.callbackQuery("setting:toggle:reels", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
     if (!(await requireOwner(ctx))) return;
     const cfg = await getConfig();
     await updateConfig({ reelsMode: !cfg.reelsMode });
     const updated = await getConfig();
-    const { text, keyboard } = getSettingsMenu(updated.showEnglish, updated.showOriginal, updated.signature, updated.reelsMode);
+    const { text, keyboard } = getSettingsMenu(updated.signature, updated.reelsMode);
     await safeReply(
       ctx,
       `${updated.reelsMode ? "🎞 Reels mode ON — new posts are queued for manual review instead of auto-posting." : "🎞 Reels mode OFF — posts auto-publish as before."}\n\n${text}`,
@@ -839,7 +817,7 @@ export function registerCallbacks(bot: any): void {
     const lang = ctx.callbackQuery?.data?.split(":")[2] || "am";
     await updateConfig({ translatedLang: lang });
     const cfg = await getConfig();
-    const { text, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal, cfg.signature, cfg.reelsMode);
+    const { text, keyboard } = getSettingsMenu(cfg.signature, cfg.reelsMode);
     const langNames: Record<string, string> = {
       am: "Amharic", ar: "Arabic", fr: "French",
       es: "Spanish", de: "German", pt: "Portuguese",
@@ -1218,7 +1196,7 @@ export function registerCallbacks(bot: any): void {
         await updateConfig({ signature: text });
         await clearPendingInput(userId);
         const cfg = await getConfig();
-        const { text: menuText, keyboard } = getSettingsMenu(cfg.showEnglish, cfg.showOriginal, cfg.signature, cfg.reelsMode);
+        const { text: menuText, keyboard } = getSettingsMenu(cfg.signature, cfg.reelsMode);
         await ctx.reply(`✅ Signature updated.\n\n${menuText}`, { reply_markup: keyboard });
         break;
       }

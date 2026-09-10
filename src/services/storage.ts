@@ -24,8 +24,6 @@ const DEFAULT_CONFIG: BotConfig = {
   targetChannels: [],
   signature: DEFAULT_SIGNATURE,
   translatedLang: "am",
-  showEnglish: false,
-  showOriginal: false,
   owners: [],
   admins: [],
   roleNames: {},
@@ -74,6 +72,15 @@ export async function getConfig(): Promise<BotConfig> {
   // Migrate legacy single targetChannel into targetChannels
   if (cfg.targetChannel && (!cfg.targetChannels || cfg.targetChannels.length === 0)) {
     const migrated = { ...cfg, targetChannels: [cfg.targetChannel] };
+    await dbSet(KEY_CONFIG, migrated);
+    configCache = migrated; configCacheTime = now;
+    return migrated;
+  }
+  // Migrate legacy showEnglish/showOriginal: reference text is now always shown.
+  if ((cfg as any).showEnglish !== undefined || (cfg as any).showOriginal !== undefined) {
+    const migrated = { ...cfg } as any;
+    delete migrated.showEnglish;
+    delete migrated.showOriginal;
     await dbSet(KEY_CONFIG, migrated);
     configCache = migrated; configCacheTime = now;
     return migrated;
