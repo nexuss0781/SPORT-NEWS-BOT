@@ -63,7 +63,16 @@ export async function getMonitorClient(): Promise<TelegramClient> {
 
   sharedConnecting = (async () => {
     const client = createMonitorClient();
-    await client.connect();
+    // A dead/restless serverless socket can make connect() hang indefinitely,
+    // so give the handshake a hard ceiling and reset on expiry.
+    const CONNECT_TIMEOUT_MS = 20_000;
+    const guarded = Promise.race([
+      client.connect(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("MTProto connect timed out")), CONNECT_TIMEOUT_MS)
+      ),
+    ]);
+    await guarded;
     sharedClient = client;
     sharedConnecting = null;
     return client;

@@ -48,6 +48,25 @@ export interface MonitorScanResult {
 // publishes them, and fires due scheduled reels. Used by the Vercel cron
 // endpoint (/api/monitor) and by the /refresh bot command.
 export async function runMonitorScan(bot: Bot): Promise<MonitorScanResult> {
+  // Hard ceiling so a hung MTProto call degrades to partial results instead of
+  // blowing past Vercel's function timeout (60s).
+  const DEADLINE_MS = 55_000;
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Monitor scan timed out")), DEADLINE_MS);
+  });
+
+  try {
+    return await Promise.race([scan(bot), deadline]);
+  } catch (error: any) {
+    console.error("[monitor] scan error:", error?.message || error);
+    return { ok: true, processed: 0, message: `Scan stopped: ${error?.message || error}`, results: [] };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function scan(bot: Bot): Promise<MonitorScanResult> {
   const results: MonitorResultItem[] = [];
 
   const channels = await getChannels();
