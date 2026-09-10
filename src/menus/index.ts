@@ -168,7 +168,6 @@ export function getSettingsMenu(signature: string, reelsMode = false): { text: s
     "",
     `${signature ? `✍️ Signature:\n${signature}` : "✍️ Signature: Not set"}`,
     "",
-    "📄 Reference Text: Always ON (auto-detected)",
     `🎞 Reels Mode:       ${reelsMode ? "✅ ON (manual queue)" : "❌ OFF (auto-post)"}`,
     "",
     "Settings:",
