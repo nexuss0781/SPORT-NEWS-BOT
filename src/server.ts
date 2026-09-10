@@ -64,9 +64,12 @@ async function main(): Promise<void> {
   setTimeout(() => runLoop("boot"), 5000).unref();
   setInterval(() => runLoop("timer"), config.monitorIntervalMs).unref();
 
-  // Telegram long-polling. drop_pending_updates avoids replaying old channel
-  // posts that the boot scan will already have handled via MTProto.
-  await bot.start({ drop_pending_updates: true });
+  // Telegram long-polling. First clear any leftover webhook (e.g. from the old
+  // Vercel deploy) — Telegram refuses getUpdates while a webhook is active.
+  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch((e: any) =>
+    console.error(`[bot] deleteWebhook failed: ${String(e?.message || e)}`)
+  );
+  await bot.start();
   console.log("[bot] started in long-polling mode");
 }
 
