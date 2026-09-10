@@ -123,7 +123,16 @@ export async function resolveUsernameToId(
   const username = normalizeUsername(input);
   if (!username) return { ok: false, error: "No username found. Send something like @username." };
 
-  const client = await getCopyClient();
+  let client: any = null;
+  try {
+    client = await getCopyClient();
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: `Cannot connect to Telegram session: ${String(error?.message || error)}. Check TELEGRAM_SESSION.`,
+    };
+  }
+
   try {
     const res: any = await client.invoke(new Api.contacts.ResolveUsername({ username }));
     const users: any[] = res?.users || [];

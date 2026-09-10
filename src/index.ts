@@ -80,6 +80,14 @@ export function createBot(): Bot {
     await ctx.reply("Action cancelled. Use /menu to open the menu.");
   });
 
+  // Log every unhandled handler error so outages stop being invisible.
+  bot.catch((err) => {
+    const e: any = err?.error || err;
+    console.error(
+      `[bot:error] ctx=${err?.ctx?.update?.update_id} err=${String(e?.message || e)}`
+    );
+  });
+
   return bot;
 }
 
