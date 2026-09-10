@@ -171,8 +171,46 @@ export function registerAdminCommands(bot: any): void {
       "/setsignature text - Set footer",
       "/toggleenglish - Toggle English display",
       "/toggleoriginal - Toggle Original display",
+      "/refresh - Scan sources & fire due reels now",
     ].join("\n");
 
     ctx.reply(status);
+  });
+
+  // Manually trigger a monitor scan (same work the cron does): check source
+  // channels for new posts, queue/publish them, and fire due scheduled reels.
+  bot.command("refresh", adminOnly, async (ctx: Context) => {
+    const started = Date.now();
+    await ctx.reply("🔄 Refreshing… scanning sources & firing due reels.");
+
+    let summary: string;
+    try {
+      const { runMonitorScan } = await import("../services/monitorScan");
+      const result = await runMonitorScan(bot);
+
+      const ok = result.results.filter((r) => r.ok).length;
+      const failed = result.results.filter((r) => !r.ok);
+
+      if (result.message) {
+        summary = `⚠️ ${result.message}`;
+      } else if (result.processed === 0) {
+        summary = "✅ Nothing new to process.";
+      } else {
+        const lines: string[] = [];
+        for (const r of result.results.slice(0, 12)) {
+          if (r.ok && r.skipped) lines.push(`➖ ${r.channel} #${r.messageId}: skipped (${r.skipped})`);
+          else if (r.ok && r.scheduled) lines.push(`⏰ ${r.channel} #${r.messageId}: scheduled reel posted`);
+          else if (r.ok) lines.push(`✔️ ${r.channel} #${r.messageId}`);
+          else lines.push(`❌ ${r.channel} #${r.messageId}: ${r.error}`);
+        }
+        if (failed.length) lines.push(`\n${failed.length} failed`);
+        summary = `✅ Processed ${result.processed} item(s):\n${lines.join("\n")}`;
+      }
+    } catch (error: any) {
+      summary = `❌ Refresh failed: ${String(error?.message || error)}`;
+    }
+
+    const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+    await ctx.reply(`${summary}\n\n⏱ ${elapsed}s`);
   });
 }
