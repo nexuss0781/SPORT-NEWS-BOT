@@ -1,12 +1,12 @@
 {
   "name": "sport-news-amharic-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Telegram bot that monitors channels and translates posts to Amharic",
-  "main": "api/bot.ts",
+  "main": "dist/src/server.js",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "vercel",
+    "start": "node dist/src/server.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,13 +14,15 @@
     "@vitalets/google-translate-api": "^9.2.0",
     "dotenv": "^17.4.2",
     "grammy": "^1.21.1",
-    "postgres": "^3.4.9",
     "telegram": "^2.26.22",
     "teleproto": "^1.229.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "typescript": "^5.5.0",
-    "vercel": "^37.0.0"
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

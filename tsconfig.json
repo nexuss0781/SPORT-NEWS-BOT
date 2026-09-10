@@ -15,6 +15,6 @@
     "sourceMap": true,
     "moduleResolution": "node"
   },
-  "include": ["api/**/*", "src/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "data"]
 }
