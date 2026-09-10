@@ -59,3 +59,24 @@ export async function dbPing(): Promise<boolean> {
     return false;
   }
 }
+
+// Full-store snapshot used to keep a backup copy remote (Vercel -> Supabase)
+// and to restore it on a fresh deployment (Render ephemeral disk resets).
+export async function dbExportAll(): Promise<Record<string, unknown>> {
+  ensureDir();
+  const out: Record<string, unknown> = {};
+  for (const file of fs.readdirSync(DATA_DIR)) {
+    if (!file.endsWith(".json")) continue;
+    const key = file.slice(0, -5);
+    const value = readFile<unknown>(key);
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
+export async function dbImportAll(snapshot: Record<string, unknown>): Promise<void> {
+  for (const [key, value] of Object.entries(snapshot || {})) {
+    if (value === undefined || value === null) continue;
+    writeFile(key, value);
+  }
+}

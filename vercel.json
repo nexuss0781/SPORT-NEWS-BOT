@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "api/bot.ts": { "maxDuration": 60 },
+    "api/wake.ts": { "maxDuration": 60 },
+    "api/reconcile.ts": { "maxDuration": 60 },
+    "api/monitor.ts": { "maxDuration": 60 },
+    "api/sync.ts": { "maxDuration": 60 }
+  }
+}

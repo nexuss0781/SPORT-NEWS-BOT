@@ -18,7 +18,8 @@ import { cleanContent } from "./services/cleaner";
 import { getMainMenu } from "./menus/index";
 import { isPromotionalPost } from "./services/promo";
 
-export function createBot(): Bot {
+export function createBot(o: { webhookMode?: boolean } = {}): Bot {
+  const { webhookMode = false } = o;
   const bot = new Bot(config.botToken, {
     botInfo: {
       id: 8830869191,
@@ -44,14 +45,15 @@ export function createBot(): Bot {
   // Register callback handlers for inline keyboards
   registerCallbacks(bot);
 
-  // Handle channel posts (new messages)
+  // Handle channel posts (new messages). On Vercel (webhook mode) these are
+  // skipped and left entirely to Render's monitor loop.
   bot.on("channel_post", async (ctx) => {
-    await handleChannelPost(ctx);
+    if (!webhookMode) await handleChannelPost(ctx);
   });
 
   // Handle edited channel posts
   bot.on("edited_channel_post", async (ctx) => {
-    await handleChannelPost(ctx, true);
+    if (!webhookMode) await handleChannelPost(ctx, true);
   });
 
   // Handle /english and /original commands in target channel (reply to a translated post)
