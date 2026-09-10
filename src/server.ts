@@ -63,7 +63,9 @@ async function main(): Promise<void> {
   const envCheck = ["BOT_TOKEN", "ADMIN_IDS", "TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_SESSION"]
     .map((k) => `${k}=${process.env[k] ? "SET" : "EMPTY"}`)
     .join(" | ");
+  const parsedCheck = `apiId=${JSON.stringify(process.env.TELEGRAM_API_ID)} | apiHash=${JSON.stringify(process.env.TELEGRAM_API_HASH)} | sessionLen=${process.env.TELEGRAM_SESSION?.length} | sessionPrefix=${JSON.stringify((process.env.TELEGRAM_SESSION || "").slice(0, 6))}`;
   console.log(`[env] ${envCheck}`);
+  console.log(`[env:parsed] ${parsedCheck}`);
 
   // First scan shortly after boot, then on the configured timer.
   setTimeout(() => runLoop("boot"), 5000).unref();
