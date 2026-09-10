@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   const envCheck = ["BOT_TOKEN", "ADMIN_IDS", "TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_SESSION"]
     .map((k) => `${k}=${process.env[k] ? "SET" : "EMPTY"}`)
     .join(" | ");
-  const parsedCheck = `apiId=${JSON.stringify(process.env.TELEGRAM_API_ID)} | apiHash=${JSON.stringify(process.env.TELEGRAM_API_HASH)} | sessionLen=${process.env.TELEGRAM_SESSION?.length} | sessionPrefix=${JSON.stringify((process.env.TELEGRAM_SESSION || "").slice(0, 6))}`;
+  const parsedCheck = `apiId=${typeof config.telegramApiId === "number" && config.telegramApiId > 0 ? "valid-number" : "INVALID"} | apiHash=${config.telegramApiHash?.length || 0} chars | session=${config.telegramSession?.length || 0} chars`;
   console.log(`[env] ${envCheck}`);
   console.log(`[env:parsed] ${parsedCheck}`);
 
