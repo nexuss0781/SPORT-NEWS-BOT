@@ -7,19 +7,27 @@ import { pushSnapshot, pullSnapshot } from "./services/sync";
 // Render entry point: an always-on web service.
 //
 // Two modes (auto-detected):
-//  - Transition mode (VERCEL_URL + RENDER_URL set): Vercel owns the Telegram
-//    webhook while Render is down/warming. Render stays in STANDBY (health +
-//    monitor + storage sync, but NO long-polling) until Vercel calls /handoff.
-//    Render then deletes the webhook itself and immediately starts long-polling
-//    in the same process, so Telegram never has a moment without an owner
-//    ("zero disruption"). Render batches its JSON storage to Vercel -> Supabase
-//    and re-imports the snapshot on boot (Render free disk is ephemeral).
+//  - Transition mode (VERCEL_URL + RENDER_URL set): Vercel is the always-on
+//    front that takes the first update and answers instantly, then wakes
+//    Render. Render takes over long-polling (the "fast engine") and serves
+//    while there is activity. Once Render receives NO update for
+//    `idleGiveBackMs`, it backs up to Vercel -> Supabase, hands the webhook
+//    back to Vercel and goes quiet so it can sleep. Next real activity lands
+//    on Vercel, which wakes Render again. Render re-imports the snapshot on
+//    boot (Render free disk is ephemeral).
 //  - Standalone (no URLs): legacy behaviour, delete webhook + long-poll at boot.
 //
 // Ownership invariant: Vercel only ever SETS the webhook (reclaim). Render only
 // ever DELETES it, atomically, at the moment it starts polling.
 
 const bot = createBot();
+
+// Every update Render serves counts as activity — it resets the inactivity
+// watchdog so Render keeps serving while users are active.
+bot.use((_ctx, next) => {
+  touchActivity();
+  return next();
+});
 
 let scanning = false;
 async function runLoop(trigger: string): Promise<void> {
@@ -46,10 +54,44 @@ async function handBackToVercel(): Promise<void> {
     await bot.api.setWebhook(vercelWebhookUrl(), {
       allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post", "callback_query"],
     }).catch(() => {});
+    pollingStarted = false;
     console.log("[mode] webhook handed back to Vercel");
   } catch (e: any) {
     console.error("[mode] handback failed:", String(e?.message || e));
   }
+}
+
+// Give-back cycle (inactivity-based): while Render serves updates, every
+// served update resets the watchdog. Once no update has arrived for
+// `idleGiveBackMs`, Render pushes a snapshot, hands the webhook back to
+// Vercel and goes quiet so it can sleep. Next real activity goes to Vercel,
+// which wakes Render again. If activity keeps coming, Render never gives back.
+let lastActivityAt = 0;
+let giveBackTimer: NodeJS.Timeout | undefined;
+
+function armGiveBackWatchdog(): void {
+  if (giveBackTimer) clearTimeout(giveBackTimer);
+  if (!transitionEnabled) return;
+  const remaining = Math.max(0, config.idleGiveBackMs - (Date.now() - lastActivityAt));
+  giveBackTimer = setTimeout(() => {
+    void giveBackToVercel();
+  }, remaining);
+}
+
+function touchActivity(): void {
+  if (!transitionEnabled) return;
+  lastActivityAt = Date.now();
+  armGiveBackWatchdog();
+}
+
+async function giveBackToVercel(): Promise<void> {
+  if (giveBackTimer) {
+    clearTimeout(giveBackTimer);
+    giveBackTimer = undefined;
+  }
+  console.log(`[mode] idle for ${config.idleGiveBackMs}ms — backing up and giving back to Vercel`);
+  await pushSnapshot("giveback").catch(() => {});
+  await handBackToVercel();
 }
 
 // --- HTTP server --------------------------------------------------------------------------
@@ -118,8 +160,9 @@ const server = http.createServer(async (req, res) => {
 let pollingStarted = false;
 
 // In transition mode Render never polls until Vercel calls /handoff; in
-// standalone mode it polls at boot. Idempotent so /handoff can be hit
-// repeatedly, and each call re-deletes the webhook so Render re-takes control.
+// standalone mode it polls at boot and never gives back. Idempotent so
+// /handoff can be hit repeatedly, and each call re-deletes the webhook so
+// Render re-takes control (and renews its serve window).
 async function beginPolling(source: string): Promise<void> {
   // Take ownership: delete the webhook (Vercel still owns until now, so any
   // update in flight is safe — Telegram keeps it pending and delivers it to
@@ -134,13 +177,26 @@ async function beginPolling(source: string): Promise<void> {
     console.log("[bot] starting long-polling");
     bot
       .start()
-      .then(() => console.log("[bot] polling stopped"))
+      .then(() => {
+        console.log("[bot] polling stopped");
+        if (giveBackTimer) {
+          clearTimeout(giveBackTimer);
+          giveBackTimer = undefined;
+        }
+      })
       .catch((e: any) => {
         console.error(`[bot] start failed: ${String(e?.message || e)}`);
         pollingStarted = false;
         // Hand back to Vercel so it keeps answering while Render is broken.
         handBackToVercel();
       });
+    // Inactivity watchdog: lasts until Render has been silent `idleGiveBackMs`.
+    lastActivityAt = Date.now();
+    armGiveBackWatchdog();
+  } else {
+    // Already polling: a repeated /handoff renews the inactivity window.
+    lastActivityAt = Date.now();
+    armGiveBackWatchdog();
   }
 }
 
@@ -155,9 +211,10 @@ async function main(): Promise<void> {
   const parsedCheck = `apiId=${typeof config.telegramApiId === "number" && config.telegramApiId > 0 ? "valid-number" : "INVALID"} | apiHash=${config.telegramApiHash?.length || 0} chars | session=${config.telegramSession?.length || 0} chars`;
   console.log(`[env] ${envCheck}`);
   console.log(`[env:parsed] ${parsedCheck}`);
-  console.log(`[mode] transition=${transitionEnabled ? `vercel=${config.vercelUrl} render=${config.renderUrl}` : "standalone"}`);
+console.log(`[mode] transition=${transitionEnabled ? `vercel=${config.vercelUrl} render=${config.renderUrl}` : "standalone"}`);
+    console.log(`[mode] idle give-back after ${config.idleGiveBackMs}ms (RENDER_IDLE_MS)`);
 
-  if (transitionEnabled) {
+    if (transitionEnabled) {
     // Restore truth from Vercel (Supabase) before serving anything.
     await pullSnapshot();
     // Keep Render's disk mirrored to Supabase at all times.

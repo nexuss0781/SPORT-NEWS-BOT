@@ -36,6 +36,9 @@ export const config = {
   renderUrl: (process.env.RENDER_URL || "").replace(/\/+$/, ""),
   // How often Render pushes a storage snapshot to Vercel -> Supabase (ms).
   syncIntervalMs: Number(process.env.SYNC_INTERVAL_MS || 5 * 60 * 1000),
+  // After how many ms of INACTIVITY (no updates Render is serving) it backs up,
+  // hands the webhook back to Vercel and goes back to standby/sleep.
+  idleGiveBackMs: Number(process.env.RENDER_IDLE_MS || 5 * 60 * 1000),
 } as const;
 
 export const transitionEnabled = Boolean(config.vercelUrl && config.renderUrl);

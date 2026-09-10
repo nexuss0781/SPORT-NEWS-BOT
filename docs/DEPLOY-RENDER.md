@@ -1,26 +1,31 @@
-# Deploy: Vercel on top of Render (free tiers)
+# Deploy: Vercel + Render (free tiers)
 
 The bot runs on **two platforms at once** to survive both free-tier failure modes:
 
 | Failure mode | Consequence | Fix |
 |---|---|---|
-| Render free sleeps after ~15 min of no **inbound** traffic (even while long-polling) | Bot stops answering while "warm" | Vercel (always-on webhook) wakes Render and takes over instantly |
-| Render free filesystem is **ephemeral** (resets on cold start / redeploy) | All state lost | Render batches its storage to Vercel -> Supabase every 5 min and re-imports on boot |
+| Render free sleeps after ~15 min of no **inbound** traffic (even while long-polling) | Bot stops answering while "warm" | Vercel (always-on webhook) answers first, then wakes Render |
+| Render free filesystem is **ephemeral** (resets on cold start / redeploy) | All state lost | Render backs up its storage to Vercel -> Supabase and re-imports on boot |
 
 ## How it works
 
-- **Telegram webhook -> Vercel** (`api/bot`). Vercel answers immediately — no cold start.
-- On the first call, Vercel kicks `/api/wake` (fire-and-forget) which:
+- **Vercel is the always-on front.** Telegram webhook points at Vercel (`api/bot`), so the
+  first update of a quiet period is answered instantly — no cold-start skip.
+- Vercel then kicks `/api/wake` (fire-and-forget, never blocks the reply) which:
   1. hits Render's `/` endpoint (this **wakes** it),
-  2. polls until Render returns `{"status":"ok","running":true}` (the green light),
-  3. deletes the webhook and POSTs `/handoff` to Render.
-- Render then starts **long-polling** (`bot.start()`) and owns updates — the transition is
-  seamless to users.
-- Render **batches its storage snapshot** to Vercel `/api/sync` every `SYNC_INTERVAL_MS`;
-  Vercel persists it to **Supabase** (single `bot_state` row). Render re-imports the snapshot
-  on boot, so a fresh filesystem is transparently recovered.
-- **Self-healing:** GitHub Actions pings Vercel `/api/monitor` every 5 min. If Render is not
-  green, Vercel reclaims the webhook (`vercel-owns`) and serves until Render wakes again.
+  2. waits until Render's HTTP server is up,
+  3. POSTs `/handoff` to Render.
+- Render takes over **long-polling** — it's the **fast engine** that serves the bot while
+  there is activity. Every served update (message, callback, channel post...) resets an
+  inactivity watchdog.
+- Once Render has received **no update for `RENDER_IDLE_MS`** (default 5 min), it backs up
+  to Vercel `/api/sync` -> **Supabase**, hands the webhook back to Vercel, and goes quiet so
+  it can sleep. The next real activity lands on Vercel again and the cycle repeats.
+- **Data syncs across both:** Render re-imports the Supabase snapshot on boot; pushes every
+  `SYNC_INTERVAL_MS`; and always pushes once more on give-back/shutdown.
+- **Self-healing:** GitHub Actions pings Vercel `/api/monitor` every 5 min. It only ever
+  enforces ownership (reclaim to Vercel if nobody owns) — it never wakes Render; only real
+  activity does.
 
 ## 0. Supabase setup (one-time)
 
@@ -74,8 +79,9 @@ create table if not exists bot_state (
 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` / `TELEGRAM_SESSION` | required (MTProto monitor + copy) |
 | `MONITOR_SECRET` | **same** as Vercel (guards `/handoff`) |
 | `DATA_DIR` | `./data` (snapshot sync makes ephemeral disk safe) |
-| `MONITOR_INTERVAL_MS` | `300000` |
-| `SYNC_INTERVAL_MS` | `300000` |
+| `MONITOR_INTERVAL_MS` | `300000` (how often Render scans source channels) |
+| `SYNC_INTERVAL_MS` | `300000` (how often Render pushes a snapshot) |
+| `RENDER_IDLE_MS` | `300000` (give back to Vercel after this long without bot updates) |
 | `PORT` | `3000` |
 | `PUBLIC_BASE_URL` | `https://sport-news-bot.vercel.app` |
 | `RENDER_URL` | `https://sport-news-bot.onrender.com` |
@@ -88,26 +94,29 @@ Both platforms are up, but nobody listens yet — claim the webhook for Vercel:
 curl "https://sport-news-bot.vercel.app/api/monitor?key=YOUR_MONITOR_SECRET"
 ```
 
-That reconciles: Render is waking -> Vercel sets its own webhook -> next wake hands off to
-Render once green. Or set it directly:
+That reconciles: nobody owns -> Vercel claims the webhook. Or set it directly:
 
 ```bash
 curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://sport-news-bot.vercel.app/api/bot&allowed_updates=message&allowed_updates=edited_message&allowed_updates=channel_post&allowed_updates=edited_channel_post&allowed_updates=callback_query"
 ```
 
-## 4. The green light
+## 4. Ownership
 
-`https://sport-news-bot.onrender.com/` returns `{"status":"ok","running":true}` — that exact
-payload is what Vercel waits for before handing over.
+- `https://sport-news-bot.onrender.com/` returns `{"status":"ok","running":true}` when Render
+  is long-polling (`running` is false in standby). `/status` shows `mode: polling|standby`.
 
 ## 5. Local dev
 
 Without `PUBLIC_BASE_URL`/`RENDER_URL` set, `transitionEnabled=false` and Render behaves as
-before: delete webhook + long-poll immediately, no sync. `npm run dev` is unaffected.
+before: delete webhook + long-poll immediately, no sync, no give-back. `npm run dev` is
+unaffected.
 
 ## Related issues
 
-- Telegram forbids webhook + getUpdates simultaneously (409). That is why Vercel
-  **deletes** its webhook before Render starts polling, and why Render only starts on `/handoff`.
+- Telegram forbids webhook + getUpdates simultaneously (409). That is why the handoff is
+  atomic on Render: `/handoff` deletes the webhook and starts polling in the same process,
+  so Telegram never has a moment without an owner.
+- Give-back is **inactivity-based**: any bot update resets the timer; only after
+  `RENDER_IDLE_MS` of silence does Render back up and return the webhook to Vercel.
 - Clean shutdown: Render hands the webhook back to Vercel on SIGTERM so Vercel keeps serving
   instantly during redeploys/sleep.
