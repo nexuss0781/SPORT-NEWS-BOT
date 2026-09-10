@@ -9,6 +9,7 @@ import {
 } from "../services/storage";
 import { toChannelUrl } from "../services/mtproto";
 import { Channel } from "../types";
+import { config, transitionEnabled } from "../config";
 
 export function adminOnly(ctx: Context, next: () => Promise<void>): Promise<void> {
   return (async () => {
@@ -133,6 +134,42 @@ export function registerAdminCommands(bot: any): void {
     const cfg = await getConfig();
     const channels = await getChannels();
 
+    // Transition-mode health: who is answering right now (this command runs on
+    // whichever host owns the updates) and whether Render is up.
+    let health = "";
+    if (transitionEnabled) {
+      try {
+        const [renderJson, webhookInfo] = await Promise.all<[unknown, string]>([
+          fetch(`${config.renderUrl}/status`, { signal: AbortSignal.timeout(8000) })
+            .then((r) => (r.json() as Promise<unknown>).catch(() => null))
+            .catch(() => null),
+          bot.api.getWebhookInfo().then((r: { url: string }) => r.url || "").catch(() => ""),
+        ]);
+        const rj = renderJson as { status?: string; mode?: string } | null;
+
+        const renderState = rj?.status === "ok"
+          ? rj.mode === "polling"
+            ? "🟢 ON — polling (serving)"
+            : "🟡 standby (idle)"
+          : "🔴 OFF / unreachable";
+        const responder = webhookInfo.endsWith("/api/bot")
+          ? "Vercel (webhook)"
+          : webhookInfo && webhookInfo.length > 0
+            ? "other webhook"
+            : "Render (long-poll)";
+
+        health = [
+          "",
+          "════════ HEALTH ═══════",
+          `👀 Responder: ${responder}`,
+          `⚙️ Render: ${renderState}`,
+          "════════════════════════",
+        ].join("\n");
+      } catch {
+        health = "";
+      }
+    }
+
     const status = [
       "🤖 Bot Status",
       "",
@@ -140,6 +177,7 @@ export function registerAdminCommands(bot: any): void {
       `📤 Target Channels: ${cfg.targetChannels.length ? cfg.targetChannels.join(", ") : "Not set"}`,
       `✍️ Signature: ${cfg.signature || "Not set"}`,
       `🌐 Translation Lang: ${cfg.translatedLang}`,
+      health,
       "",
       "Channel Commands:",
       "/english - Show English + Amharic (reply to post)",
