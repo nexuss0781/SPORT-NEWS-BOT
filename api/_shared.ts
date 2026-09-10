@@ -7,10 +7,11 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 //   - webhook == /api/bot  -> Vercel is hot, Render is standby/warming
 //   - webhook == empty     -> Render owns it via long-polling
 //
-// The Telegram API forbids webhook + getUpdates at the same time (409), so we
-// hand off (delete webhook) only once Render reports the green light
-// {"status":"ok","running":true}, and reclaim (set webhook back) whenever
-// Render is not green.
+// The Telegram API forbids webhook + getUpdates at the same time (409), so the
+// handoff is atomic on Render's side: Vercel calls /handoff and Render deletes
+// the webhook + starts long-polling in the same process. Until that delete
+// lands, Vercel still owns — Telegram keeps any in-flight update pending and
+// delivers it to Render's getUpdates (no drops, no dead window).
 
 export const MONITOR_SECRET = process.env.MONITOR_SECRET || "";
 export const BOT_TOKEN = process.env.BOT_TOKEN || "";
@@ -78,30 +79,39 @@ export async function setWebhook(url: string): Promise<boolean> {
 }
 
 export async function deleteWebhook(): Promise<boolean> {
-  const r = await telegram<{ ok: boolean }>("deleteWebhook", { drop_pending_updates: true });
+  // Never drop pending updates — dropping them could discard user messages.
+  const r = await telegram<{ ok: boolean }>("deleteWebhook", {});
   return Boolean(r?.ok);
 }
 
 // --- Render health ------------------------------------------------------------------------
+//
+// Two distinct signals:
+//   - renderUp():     Render's HTTP server responds at all (the process is
+//                     warm/booting). The FIRST probe doubles as the wake-up
+//                     call (Render free boots on inbound request).
+//   - renderPolling():Render is actively long-polling Telegram and owns the
+//                     updates (health "running" is true only in this state).
 
-export async function renderGreen(timeoutMs = 8000): Promise<boolean> {
+export async function renderUp(timeoutMs = 8000): Promise<boolean> {
   try {
     const res = await fetch(`${RENDER_URL}/`, { signal: AbortSignal.timeout(timeoutMs) });
     const json: any = await res.json().catch(() => null);
-    return Boolean(json && json.status === "ok" && json.running === true);
+    return Boolean(json && json.status === "ok");
   } catch {
     return false;
   }
 }
 
-// First probe doubles as the wake-up call (Render free boots on inbound request).
-export async function waitForRenderGreen(timeoutMs = 55000, pollMs = 2000): Promise<boolean> {
+// Waits until Render's process responds (the first probe wakes a sleeping
+// instance). Does NOT mean it is polling yet.
+export async function waitForRenderUp(timeoutMs = 55000, pollMs = 2000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await renderGreen(9000)) return true;
+    if (await renderUp(9000)) return true;
     await new Promise((r) => setTimeout(r, pollMs));
   }
-  return renderGreen(9000);
+  return renderUp(9000);
 }
 
 // Does Render own long-polling right now (vs. sitting in standby)?
@@ -113,6 +123,16 @@ export async function renderPolling(timeoutMs = 8000): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Waits until Render confirms it is actually long-polling (owns updates).
+export async function waitForRenderPolling(timeoutMs = 30000, pollMs = 1500): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await renderPolling(9000)) return true;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  return renderPolling(9000);
 }
 
 // --- Supabase (PostgREST) ------------------------------------------------------------------

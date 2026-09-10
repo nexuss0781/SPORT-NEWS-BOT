@@ -6,8 +6,10 @@ import { MONITOR_SECRET, PUBLIC_BASE_URL } from "./_shared";
 // Vercel Telegram webhook.
 //  - webhookMode: creates a bot that only answers users (no channel_post
 //    handling — that's Render's monitor loop's job).
-//  - After replying, it kicks /api/wake fire-and-forget so Render gets
-//    woken/takes over on the first real call.
+//  - The user's reply is fully delivered inside callback(). AFTER that, we
+//    kick /api/wake so Render warms up and takes over polling. The user is
+//    never delayed: Vercel serves while Render wakes, and Render deletes the
+//    webhook itself the moment it starts polling (zero disruption).
 const bot = createBot({ webhookMode: true });
 const callback = webhookCallback(bot, "http");
 
