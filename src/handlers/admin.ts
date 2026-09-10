@@ -13,7 +13,7 @@ import { Channel } from "../types";
 export function adminOnly(ctx: Context, next: () => Promise<void>): Promise<void> {
   return (async () => {
     const userId = ctx.from?.id;
-    if (!userId || !(await isOwner(userId))) {
+    if (!userId || !(await isOwner(userId, ctx.from?.username))) {
       await ctx.reply("⛔ You are not authorized to use this command.");
       return;
     }

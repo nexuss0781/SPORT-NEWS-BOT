@@ -11,24 +11,51 @@ export interface RoleMember {
   removable?: boolean;
 }
 
-// Owner = the operator (env ADMIN_IDS, immutable) + any DB-stored owners.
-export async function isOwner(userId: number | undefined): Promise<boolean> {
+// Owner = the operator (env ADMIN_IDS/ADMIN_USERNAMES, immutable) + any DB-stored owners.
+export async function isOwner(
+  userId: number | undefined,
+  username?: string
+): Promise<boolean> {
   if (!userId) return false;
   if (config.adminIds.includes(userId)) return true;
+  if (username && config.adminUsernames.includes(username.toLowerCase().replace(/^@/, ""))) {
+    return true;
+  }
   const cfg = await getConfig();
   return (cfg.owners || []).includes(userId);
 }
 
 // Admin (journalist) = a DB-stored admin. Owners can also post news.
-export async function isAdminRole(userId: number | undefined): Promise<boolean> {
+export async function isAdminRole(
+  userId: number | undefined,
+  username?: string
+): Promise<boolean> {
   if (!userId) return false;
   const cfg = await getConfig();
-  return (cfg.admins || []).includes(userId);
+  if ((cfg.admins || []).includes(userId)) return true;
+  if (username) {
+    const normalized = username.toLowerCase().replace(/^@/, "");
+    return Object.values(cfg.roleNames || {}).some(
+      (name) => String(name).toLowerCase() === normalized
+    );
+  }
+  return false;
 }
 
 // Anyone allowed to review/publish the news queue.
-export async function canPost(userId: number | undefined): Promise<boolean> {
-  return (await isOwner(userId)) || (await isAdminRole(userId));
+export async function canPost(
+  userId: number | undefined,
+  username?: string
+): Promise<boolean> {
+  return (await isOwner(userId, username)) || (await isAdminRole(userId, username));
+}
+
+// True when there is at least one owner anywhere (env operator or DB-stored),
+// so the UI can allow bootstrapping the first owner from the chat.
+export async function hasAnyOwner(): Promise<boolean> {
+  if (config.adminIds.length > 0 || config.adminUsernames.length > 0) return true;
+  const cfg = await getConfig();
+  return (cfg.owners || []).length > 0;
 }
 
 export async function getRoleMembers(role: Role): Promise<RoleMember[]> {
@@ -37,15 +64,17 @@ export async function getRoleMembers(role: Role): Promise<RoleMember[]> {
   const names = cfg.roleNames || {};
   const out: RoleMember[] = [];
   for (const id of ids) {
-    const isOperator = config.adminIds.includes(id);
-    out.push({ id, name: `@${names[String(id)] || id}`, removable: !isOperator });
-  }
-  if (role === "owner") {
-    // Operator env ids always count as owners, show them at the end.
-    for (const id of config.adminIds) {
-      if (!ids.includes(id)) out.push({ id, name: `@${names[String(id)] || id}`, removable: false });
+const isOperator =
+        config.adminIds.includes(id) ||
+        config.adminUsernames.includes(String(names[String(id)] || id).toLowerCase());
+      out.push({ id, name: `@${names[String(id)] || id}`, removable: !isOperator });
     }
-  }
+    if (role === "owner") {
+      // Operator env ids always count as owners, show them at the end.
+      for (const id of config.adminIds) {
+        if (!ids.includes(id)) out.push({ id, name: `@${names[String(id)] || id}`, removable: false });
+      }
+    }
   return out;
 }
 

@@ -50,6 +50,7 @@ import {
   isOwner,
   isAdminRole,
   canPost,
+  hasAnyOwner,
   getRoleMembers,
   addRoleMember,
   removeRoleMember,
@@ -61,7 +62,7 @@ import { parseDuration, formatDuration, parseK, evaluateTimeRule, evaluateViewRu
 import { BotConfig, MediaPayload, PostRules, ReelItem } from "../types";
 
 async function requireOwner(ctx: Context): Promise<boolean> {
-  if (!(await isOwner(ctx.from?.id))) {
+  if (!(await isOwner(ctx.from?.id, ctx.from?.username))) {
     await ctx.reply("⛔ You are not authorized.");
     return false;
   }
@@ -69,7 +70,7 @@ async function requireOwner(ctx: Context): Promise<boolean> {
 }
 
 async function requireCanPost(ctx: Context): Promise<boolean> {
-  if (!(await canPost(ctx.from?.id))) {
+  if (!(await canPost(ctx.from?.id, ctx.from?.username))) {
     await ctx.reply("⛔ You are not authorized.");
     return false;
   }
@@ -564,7 +565,7 @@ export function registerCallbacks(bot: any): void {
   bot.callbackQuery("menu:main", async (ctx: Context) => {
     await ctx.answerCallbackQuery().catch(() => {});
     if (!(await requireCanPost(ctx))) return;
-    const isOwnerRole = await isOwner(ctx.from?.id);
+    const isOwnerRole = await isOwner(ctx.from?.id, ctx.from?.username);
     const { text, keyboard } = getMainMenu(isOwnerRole);
     await safeReply(ctx, text, keyboard);
   });
@@ -941,7 +942,14 @@ export function registerCallbacks(bot: any): void {
 
   bot.on("message:text", async (ctx: Context) => {
     const userId = ctx.from?.id;
-    if (!userId || !(await canPost(userId))) return;
+    const userUsername = ctx.from?.username;
+    // Bootstrap: when no owner exists anywhere, the very first person to send a
+    // @username can claim the operator role via the add-owner flow. Otherwise
+    // everything below requires a recognized owner/admin.
+    const bootstrapping = !(await hasAnyOwner()) && userId !== undefined;
+
+    if (!userId) return;
+    if (!bootstrapping && !(await canPost(userId, userUsername))) return;
 
     const text = (ctx.message?.text || "").trim();
     if (!text) return;
@@ -950,7 +958,34 @@ export function registerCallbacks(bot: any): void {
 
     // No pending flow: a bare @username (or https://t.me/...) adds a source channel
     if (!state) {
-      if (!(await isOwner(userId))) return;
+      // First-ever user claims the operator role by sending their @username.
+      if (bootstrapping) {
+        if (!text.match(/^@?[A-Za-z0-9_]{3,}$/)) {
+          await ctx.reply("👑 No owner is set yet. Send your @username to claim ownership.");
+          return;
+        }
+        const added = await addRoleMember(
+          "owner",
+          userId,
+          userUsername || text.replace(/^@/, "")
+        );
+        await clearPendingInput(userId);
+        if (added) {
+          const owners = await getRoleMembers("owner");
+          const admins = await getRoleMembers("admin");
+          const { text: menuText, keyboard } = getRolesMenu({ owners, admins });
+          await ctx.reply(`👑 Welcome! You are now the owner.\n\n${menuText}`, {
+            reply_markup: keyboard,
+          });
+        } else {
+          const { text: menuText, keyboard } = getMainMenu(true);
+          await ctx.reply(`👑 You are the owner. Use /menu to open the full menu.\n\n${menuText}`, {
+            reply_markup: keyboard,
+          });
+        }
+        return;
+      }
+      if (!(await isOwner(userId, userUsername))) return;
       const match = text.match(/^(@?https?:\/\/t\.me\/)?[A-Za-z0-9_]{3,}$/i);
       if (match) {
         const username = text.match(/^@[A-Za-z0-9_]{3,}$/)
@@ -991,7 +1026,7 @@ export function registerCallbacks(bot: any): void {
         await ctx.reply(rulesText, { reply_markup: keyboard });
         return;
       }
-      const isOwnerRole = await isOwner(userId);
+      const isOwnerRole = await isOwner(userId, userUsername);
       const { text: menuText, keyboard } = getMainMenu(isOwnerRole);
       await ctx.reply(menuText, { reply_markup: keyboard });
       return;
@@ -1088,7 +1123,7 @@ export function registerCallbacks(bot: any): void {
     }
 
     if (state.startsWith("postrule_")) {
-      if (!(await isOwner(userId))) return;
+      if (!(await isOwner(userId, userUsername))) return;
       const kind = state.slice("postrule_".length);
       const cfg = await getConfig();
       const rules = { ...DEFAULT_RULES, ...(cfg.postRules || {}) };
@@ -1140,7 +1175,7 @@ export function registerCallbacks(bot: any): void {
 
     switch (state) {
       case "addsource": {
-        if (!(await isOwner(userId))) return;
+        if (!(await isOwner(userId, userUsername))) return;
         const usernames = parseChannels(text);
         if (usernames.length === 0) {
           await ctx.reply("⚠️ No valid channels found. Send usernames like: @sky_sports, @united");
@@ -1165,7 +1200,7 @@ export function registerCallbacks(bot: any): void {
       }
       case "addtarget":
       case "settarget": {
-        if (!(await isOwner(userId))) return;
+        if (!(await isOwner(userId, userUsername))) return;
         const usernames = parseTargets(text);
         if (usernames.length === 0) {
           await ctx.reply("⚠️ No valid channels found. Send usernames like: @sport_news, @sport_news2");
@@ -1179,7 +1214,7 @@ export function registerCallbacks(bot: any): void {
         break;
       }
       case "setsignature": {
-        if (!(await isOwner(userId))) return;
+        if (!(await isOwner(userId, userUsername))) return;
         await updateConfig({ signature: text });
         await clearPendingInput(userId);
         const cfg = await getConfig();
@@ -1190,7 +1225,7 @@ export function registerCallbacks(bot: any): void {
     }
 
     if (state.startsWith("addrole:")) {
-      if (!(await isOwner(userId))) return;
+      if (!(await isOwner(userId, userUsername)) && !bootstrapping) return;
       const role = state.slice("addrole:".length) as "owner" | "admin";
       if (role !== "owner" && role !== "admin") return;
       const result = await resolveUsernameToId(text);
@@ -1215,7 +1250,7 @@ export function registerCallbacks(bot: any): void {
   // Capture media/files sent by an authorized reviewer while in "Add Media" reel state
   bot.on("message", async (ctx: Context) => {
     const userId = ctx.from?.id;
-    if (!userId || !(await canPost(userId))) return;
+    if (!userId || !(await canPost(userId, ctx.from?.username))) return;
     const message = ctx.message;
     if (!message) return;
 

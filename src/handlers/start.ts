@@ -1,8 +1,23 @@
 import { Context, InlineKeyboard } from "grammy";
 import { getMainMenu } from "../menus/index";
+import { hasAnyOwner } from "../services/roles";
 
 export function registerStartCommands(bot: any): void {
   bot.command("start", async (ctx: Context) => {
+    if (!(await hasAnyOwner())) {
+      const welcome = [
+        "╔══════════════════════════╗",
+        "║   🤖 SPORT NEWS BOT      ║",
+        "║   Amharic Translation    ║",
+        "╚══════════════════════════╝",
+        "",
+        "Welcome! No owner is configured yet.",
+        "Send your @username to claim ownership",
+        "and start setting up the bot.",
+      ].join("\n");
+      await ctx.reply(welcome);
+      return;
+    }
     const { text, keyboard } = getMainMenu();
     const welcome = [
       "╔══════════════════════════╗",

@@ -66,11 +66,11 @@ export function createBot(): Bot {
   // Handle /menu command to show interactive menu
   bot.command("menu", async (ctx) => {
     const userId = ctx.from?.id;
-    if (!(await canPost(userId))) {
+    if (!(await canPost(userId, ctx.from?.username))) {
       await ctx.reply("⛔ You are not authorized.");
       return;
     }
-    const isOwnerRole = await isOwner(userId);
+    const isOwnerRole = await isOwner(userId, ctx.from?.username);
     const { text, keyboard } = getMainMenu(isOwnerRole);
     await ctx.reply(text, { reply_markup: keyboard });
   });

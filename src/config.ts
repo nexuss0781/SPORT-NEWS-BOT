@@ -2,12 +2,22 @@ import { config as dotenvConfig } from "dotenv";
 
 dotenvConfig();
 
+// ADMIN_IDS accepts numeric Telegram ids and/or @usernames, e.g. "123456,@me".
+// Numeric ids are checked directly; usernames are matched case-insensitively
+// against ctx.from.username (no @ prefix) when a message comes in.
+const rawAdminIds = (process.env.ADMIN_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export const config = {
   botToken: process.env.BOT_TOKEN || "",
-  adminIds: (process.env.ADMIN_IDS || "")
-    .split(",")
-    .map((id) => parseInt(id.trim(), 10))
+  adminIds: rawAdminIds
+    .map((id) => parseInt(id, 10))
     .filter((id) => !isNaN(id)),
+  adminUsernames: rawAdminIds
+    .filter((id) => isNaN(parseInt(id, 10)))
+    .map((u) => u.replace(/^@/, "").toLowerCase()),
   dataDir: process.env.DATA_DIR || "./data",
   telegramApiId: Number(process.env.TELEGRAM_API_ID || 0),
   telegramApiHash: process.env.TELEGRAM_API_HASH || "",
