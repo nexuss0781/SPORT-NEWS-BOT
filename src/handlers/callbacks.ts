@@ -37,6 +37,7 @@ import {
   updateLaneReleaseViews,
   getTargetChannels,
 } from "../services/storage";
+import { backupNow } from "../services/sync";
 import {
   encodeReelId,
   decodeReelId,
@@ -793,6 +794,28 @@ export function registerCallbacks(bot: any): void {
       `${updated.reelsMode ? "🎞 Reels mode ON — new posts are queued for manual review instead of auto-posting." : "🎞 Reels mode OFF — posts auto-publish as before."}\n\n${text}`,
       keyboard
     );
+  });
+
+  bot.callbackQuery("setting:backup", async (ctx: Context) => {
+    await ctx.answerCallbackQuery().catch(() => {});
+    if (!(await requireOwner(ctx))) return;
+    await ctx.reply("💾 Backing up… syncing storage to Vercel → Supabase, then restoring from it.").catch(() => {});
+    const result = await backupNow();
+    const cfg = await getConfig();
+    const { text, keyboard } = getSettingsMenu(cfg.signature, cfg.reelsMode);
+    if (result.ok) {
+      await safeReply(
+        ctx,
+        `✅ Backup complete.\nPushed storage to Vercel → Supabase (HTTP ${result.status}), restored ${result.restored ? "from the remote snapshot" : "with local data (no remote snapshot yet)"}.\n\n${text}`,
+        keyboard
+      );
+    } else {
+      await safeReply(
+        ctx,
+        `❌ Backup failed: ${result.error || "unknown error"}\nCheck that transition mode is enabled and Vercel env vars are set.\n\n${text}`,
+        keyboard
+      );
+    }
   });
 
   bot.callbackQuery("setting:signature", async (ctx: Context) => {

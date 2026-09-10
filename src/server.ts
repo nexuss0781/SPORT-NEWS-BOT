@@ -2,7 +2,7 @@ import * as http from "http";
 import { createBot } from "./index";
 import { runMonitorScan } from "./services/monitorScan";
 import { config, transitionEnabled, vercelWebhookUrl } from "./config";
-import { dbExportAll, dbImportAll } from "./services/db";
+import { pushSnapshot, pullSnapshot } from "./services/sync";
 
 // Render entry point: an always-on web service.
 //
@@ -32,40 +32,6 @@ async function runLoop(trigger: string): Promise<void> {
 }
 
 // --- storage bridge (Render <-> Vercel <-> Supabase) -----------------------------------
-
-async function pushSnapshot(reason: string): Promise<void> {
-  if (!transitionEnabled) return;
-  try {
-    const snapshot = await dbExportAll();
-    const url = `${config.vercelUrl}/api/sync?key=${config.monitorSecret}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ snapshot }),
-      signal: AbortSignal.timeout(20000),
-    });
-    console.log(`[sync:${reason}] push=${res.status}`);
-  } catch (e: any) {
-    console.error(`[sync:${reason}] push error:`, String(e?.message || e));
-  }
-}
-
-async function pullSnapshot(): Promise<void> {
-  if (!transitionEnabled) return;
-  try {
-    const url = `${config.vercelUrl}/api/sync?key=${config.monitorSecret}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
-    const json: any = await res.json();
-    if (json?.ok && json.snapshot) {
-      await dbImportAll(json.snapshot);
-      console.log("[sync:pull] restored storage from Vercel (Supabase)");
-    } else {
-      console.log("[sync:pull] no remote snapshot yet; keeping local");
-    }
-  } catch (e: any) {
-    console.error("[sync:pull] error:", String(e?.message || e));
-  }
-}
 
 // On graceful shutdown (Render deploy / idle sleep) hand the webhook back to
 // Vercel instantly so Vercel keeps serving while Render is down.

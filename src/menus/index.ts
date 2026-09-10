@@ -179,6 +179,7 @@ export function getSettingsMenu(signature: string, reelsMode = false): { text: s
 
   const keyboard = new InlineKeyboard()
     .text(reelsBtn, "setting:toggle:reels")
+    .text("💾 Backup", "setting:backup")
     .row()
     .text("✍️ Change Signature", "setting:signature")
     .text("🌐 Set Language", "setting:language")
