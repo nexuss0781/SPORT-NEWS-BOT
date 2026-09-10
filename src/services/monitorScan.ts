@@ -16,6 +16,7 @@ import {
   resolveChannelMeta,
   downloadMedia,
   fetchGroupedMedia,
+  estimateMediaBytes,
 } from "./mtproto";
 import { processAndPublish } from "./publisher";
 import { enqueueReel, publishReelItem } from "./reels";
@@ -132,6 +133,10 @@ export async function runMonitorScan(bot: Bot): Promise<MonitorScanResult> {
           const meta = await resolveChannelMeta(client, msg.raw, msg.messageId);
           let groupedMedia: MediaPayload[] = [];
           for (const m of groupedMsgs) {
+            // Skip big album members (videos etc.) — the reviewer can still get
+            // them on demand; we only pre-cache small previews here.
+            const est = estimateMediaBytes(m);
+            if (est !== undefined && est > 400 * 1024) continue;
             const p = await downloadMedia(client, m);
             if (p) groupedMedia.push(p);
           }
@@ -155,14 +160,20 @@ export async function runMonitorScan(bot: Bot): Promise<MonitorScanResult> {
           } else if (msg.hasMedia) {
             // Pre-download single-media previews (small photos only) so the
             // review card renders instantly when the reviewer taps a button.
-            const single = await downloadMedia(client, msg.raw);
-            const size = (single?.value as any)?.byteLength ?? (single?.value as any)?.length ?? 0;
-            if (single?.kind === "photo" && size > 0 && size <= 400 * 1024) {
-              const reelId = `${ch.username}:${msg.messageId}`;
-              const reel = await getReelById(reelId);
-              if (reel) {
-                await updateReel(reel.id, { previewMedia: single });
-                results.push({ channel: ch.username, messageId: msg.messageId, ok: true, previewCached: true });
+            // Estimate the byte size from metadata first and skip anything big
+            // so a large video never stalls the monitor within the function
+            // time limit.
+            const est = estimateMediaBytes(msg.raw);
+            if (est !== undefined && est > 0 && est <= 400 * 1024) {
+              const single = await downloadMedia(client, msg.raw);
+              const size = (single?.value as any)?.byteLength ?? (single?.value as any)?.length ?? 0;
+              if (single?.kind === "photo" && size > 0 && size <= 400 * 1024) {
+                const reelId = `${ch.username}:${msg.messageId}`;
+                const reel = await getReelById(reelId);
+                if (reel) {
+                  await updateReel(reel.id, { previewMedia: single });
+                  results.push({ channel: ch.username, messageId: msg.messageId, ok: true, previewCached: true });
+                }
               }
             }
           }

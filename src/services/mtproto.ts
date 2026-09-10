@@ -119,6 +119,33 @@ export function classifyMedia(media: any): MediaPayload["kind"] | undefined {
   return undefined;
 }
 
+// Estimate a message's media byte size from metadata only (no download). Photos
+// are guessed from their largest PhotoSize; documents/videos expose size on the
+// document itself. Returns undefined when unknown.
+export function estimateMediaBytes(msg: any): number | undefined {
+  const media = msg?.media;
+  if (!media) return undefined;
+  const kind = classifyMedia(media);
+  if (kind === "photo") {
+    const sizes = media.photo?.sizes || [];
+    let largest = 0;
+    let estimated = false;
+    for (const s of sizes) {
+      const bytes = s?.size;
+      if (typeof bytes === "number" && bytes >= 0) {
+        largest = Math.max(largest, bytes);
+        estimated = true;
+      }
+    }
+    return estimated ? largest : undefined;
+  }
+  if (kind === "video" || kind === "document" || kind === "audio") {
+    const bytes = media.document?.size;
+    return typeof bytes === "number" && bytes >= 0 ? bytes : undefined;
+  }
+  return undefined;
+}
+
 export async function downloadMedia(
   client: TelegramClient,
   msg: any
