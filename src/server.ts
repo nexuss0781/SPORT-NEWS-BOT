@@ -60,6 +60,11 @@ async function main(): Promise<void> {
     console.log(`[server] health endpoint listening on port ${config.port}`);
   });
 
+  const envCheck = ["BOT_TOKEN", "ADMIN_IDS", "TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_SESSION"]
+    .map((k) => `${k}=${process.env[k] ? "SET" : "EMPTY"}`)
+    .join(" | ");
+  console.log(`[env] ${envCheck}`);
+
   // First scan shortly after boot, then on the configured timer.
   setTimeout(() => runLoop("boot"), 5000).unref();
   setInterval(() => runLoop("timer"), config.monitorIntervalMs).unref();
