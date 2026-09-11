@@ -94,6 +94,26 @@ async function giveBackToVercel(): Promise<void> {
   await handBackToVercel();
 }
 
+// Ownership watchdog: while Render is in standby (NOT polling), make sure the
+// Telegram webhook always points at Vercel so Vercel is the always-on front.
+// This self-heals any stranded state (webhook gone, Render idle) without cron
+// and regardless of what the old deployed Render build did.
+async function enforceVercelOwnership(): Promise<void> {
+  if (!transitionEnabled || pollingStarted) return; // polling Render owns it
+  try {
+    const info = await bot.api.getWebhookInfo().catch(() => null);
+    const url = info?.url || "";
+    if (!url.endsWith("/api/bot")) {
+      await bot.api.setWebhook(vercelWebhookUrl(), {
+        allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post", "callback_query"],
+      });
+      console.log("[mode] watchdog: webhook re-set to Vercel");
+    }
+  } catch (e: any) {
+    console.error("[mode] watchdog error:", String(e?.message || e));
+  }
+}
+
 // --- HTTP server --------------------------------------------------------------------------
 
 const server = http.createServer(async (req, res) => {
@@ -221,7 +241,13 @@ console.log(`[mode] transition=${transitionEnabled ? `vercel=${config.vercelUrl}
     const syncTimer = setInterval(() => pushSnapshot("timer"), config.syncIntervalMs);
     syncTimer.unref();
     console.log(`[sync] will push snapshot every ${config.syncIntervalMs}ms`);
-    // Standby: Vercel owns the webhook; we only start polling on /handoff.
+    // Assert Vercel ownership immediately (a fresh Render must never hold the
+    // webhook while in standby), then keep enforcing it forever.
+    await bot.api.setWebhook(vercelWebhookUrl(), {
+      allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post", "callback_query"],
+    }).catch((e: any) => console.error(`[mode] initial webhook assert failed: ${String(e?.message || e)}`));
+    setInterval(() => void enforceVercelOwnership(), 45000).unref();
+    // Standby: Vercel owns the webhook; we only take it over via /handoff.
   } else {
     console.log("[bot] standalone: polling immediately");
     void beginPolling("boot");
